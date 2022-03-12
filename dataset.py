@@ -95,7 +95,7 @@ class Collator:
         max_size = max([len(sample["input_ids"]) for sample in batch])
         for sample_dict in batch:
             batch_input_ids += [pad_seq(sample_dict["input_ids"], max_size, self.pad_token_id)]
-            batch_attention_mask = [pad_seq(sample_dict["attention_mask"], max_size, self.pad_token_id)]
+            batch_attention_mask += [pad_seq(sample_dict["attention_mask"], max_size, self.pad_token_id)]
             batch_labels.append(sample_dict["labels"])
 
         return {

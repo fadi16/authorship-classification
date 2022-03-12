@@ -8,7 +8,7 @@ import torch
 from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification
+from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from dataset import AuthorsDataset, Collator
 from model_params import *
 
@@ -32,10 +32,11 @@ def train_loop(params):
     val_df = pd.read_csv(VAL_DATA_CSV_PATH)
 
     if params[MODEL] == BERT:
-        tokenizer = BertTokenizer.from_pretrained(params[CHECKPOINT])
+        tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
         # model = BertForAuthorshipIdentification(droupout=params[DROUPOUT], checkpoint=[CHECKPOINT])
         config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=3)
         model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
+        print(model)
         optimizer = torch.optim.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     else:
         raise Exception("Unknown Model")
@@ -80,6 +81,7 @@ def train_loop(params):
             print("SAVED MODEL AT " + model_checkpoint_path + "\n")
 
         print(f"Epoch {epoch} log_loss = {log_loss}, best log_loss = {best_log_loss}")
+        print("**" * 30)
 
 
 def train_step(epoch, model, optimizer, training_loader, class_weights, device, tb):
@@ -99,8 +101,6 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
         optimizer.zero_grad()
         loss = loss_fn(output_logits, labels)
         train_losses.append(loss.item())
-        if _ % 5000 == 0:
-            print(f'Epoch: {epoch}, Loss:  {loss.item()}')
 
         optimizer.zero_grad()
         loss.backward()
@@ -108,7 +108,7 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
 
     average_train_loss = np.mean(train_losses)
     tb.add_scalar("train_loss", average_train_loss, epoch)
-    print(f"Train Loss = {average_train_loss}")
+    print(f"Average Train Loss = {average_train_loss}")
 
 
 def val_step(epoch, model, val_loader, device, tb):
@@ -141,23 +141,17 @@ def val_step(epoch, model, val_loader, device, tb):
     # results with sigmoid and softmax
     print(f"Average Validation Loss = {average_val_loss}")
     print(f"** Finished validating epoch {epoch} **")
-    print(f"Accuracy Score (sigmoid) = {accuracy_sigmoid}")
-    print(f"Accuracy Score (softmax) = {accuracy_softmax}")
-    print(f"F1 Score (Micro) (sigmoid) = {f1_score_micro_sigmoid}")
-    print(f"F1 Score (Micro) (softmax) = {f1_score_micro_softmax}")
-    print(f"F1 Score (Macro) (sigmoid) = {f1_score_macro_sigmoid}")
-    print(f"F1 Score (Macro) (softmax) = {f1_score_macro_softmax}")
+    print(f"Accuracy Score = {accuracy_sigmoid}")
+    print(f"F1 Score (Micro) = {f1_score_micro_sigmoid}")
+    print(f"F1 Score (Macro) = {f1_score_macro_sigmoid}")
     print(f"Multi Class Log Loss (sigmoid) = {log_loss_sigmoid}")
     print(f"Multi Class Log Loss (softmax) = {log_loss_softmax}")
 
     tb.add_scalar("val_loss", average_val_loss, epoch)
-    tb.add_scalar("val_accuracy_sigmoid", accuracy_sigmoid, epoch)
-    tb.add_scalar("val_f1_score_macro_sigmoid", f1_score_macro_sigmoid, epoch)
-    tb.add_scalar("val_f1_score_micro_sigmoid", f1_score_micro_sigmoid, epoch)
+    tb.add_scalar("val_accuracy", accuracy_sigmoid, epoch)
+    tb.add_scalar("val_f1_score_macro", f1_score_macro_sigmoid, epoch)
+    tb.add_scalar("val_f1_score_micro", f1_score_micro_sigmoid, epoch)
     tb.add_scalar("val_log_loss_sigmoid", log_loss_sigmoid, epoch)
-    tb.add_scalar("val_accuracy_softmax", accuracy_softmax, epoch)
-    tb.add_scalar("val_f1_score_macro_softmax", f1_score_macro_softmax, epoch)
-    tb.add_scalar("val_f1_score_micro_softmax", f1_score_micro_softmax, epoch)
     tb.add_scalar("val_log_loss_softmax", log_loss_softmax, epoch)
 
     return log_loss_sigmoid
