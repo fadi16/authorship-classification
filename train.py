@@ -9,7 +9,6 @@ from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification
-from model_params import *
 from dataset import AuthorsDataset, Collator
 from model_params import *
 
@@ -132,7 +131,7 @@ def val_step(epoch, model, val_loader, device, tb):
 
             all_labels.extend(labels.cpu().detach().numpy().tolist())
             all_outputs_with_sigmoid.extend(torch.sigmoid(output_logits).cpu().detach().numpy().tolist())
-            all_outputs_with_softmax.extend(torch.softmax(output_logits).cpu().detach().numpy().tolist())
+            all_outputs_with_softmax.extend(torch.softmax(output_logits, dim=1).cpu().detach().numpy().tolist())
 
     log_loss_sigmoid, accuracy_sigmoid, f1_score_micro_sigmoid, f1_score_macro_sigmoid = get_eval_scores(all_outputs_with_sigmoid, all_labels)
     log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(all_outputs_with_softmax, all_labels)
@@ -171,7 +170,7 @@ def get_eval_scores(outputs, labels):
     f1_score_micro = metrics.f1_score(labels, pred_labels, average='micro')
     f1_score_macro = metrics.f1_score(labels, pred_labels, average='macro')
 
-    probs = rescale_probabilities(outputs)
+    probs = [rescale_probabilities(output) for output in outputs]
     # this clips probabilities - like they do in the experiment (they even use the same parameter)
     log_loss = metrics.log_loss(labels, probs)
 

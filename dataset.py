@@ -104,19 +104,6 @@ class Collator:
             "labels": torch.tensor(batch_labels, dtype=torch.float)
         }
 
-def get_ens_class_weights(beta, class_to_no_samples):
-    weights = []
-    for cls, no_samples in class_to_no_samples.items():
-        # weight for class = 1 / effective no. samples = 1 / (1 - beta ** no_samples) / (1 - beta)
-        w_cls = (1 - beta) / (1 - beta ** no_samples)
-        weights.append(w_cls)
-
-    # normalize to make the total loss roughly in the same scale when applying the weights
-    s = sum(weights)
-    weights = [3 * w / s for w in weights]
-    return weights
-
-
 if __name__ == "__main__":
     pass
 
