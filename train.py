@@ -35,7 +35,7 @@ def train_loop(params):
         tokenizer = BertTokenizer.from_pretrained(params[CHECKPOINT])
         # model = BertForAuthorshipIdentification(droupout=params[DROUPOUT], checkpoint=[CHECKPOINT])
         config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=3)
-        model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config)
+        model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
         optimizer = torch.optim.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     else:
         raise Exception("Unknown Model")
@@ -86,7 +86,7 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
     model.train()
     # use cross entropy loss (not binary cross entropy loss because that's for multi class multi label - out problem is not multi label)
     # we shouldn't apply a softmax on the output of the model because the CrossEntropyLoss function internally does that
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
+    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device, dtype=float))
     train_losses = []
     for _, data in enumerate(training_loader, 0):
         ids = data['input_ids'].to(device, dtype=torch.long)
