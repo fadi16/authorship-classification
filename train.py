@@ -92,10 +92,9 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
     for _, data in enumerate(training_loader, 0):
         ids = data['input_ids'].to(device, dtype=torch.long)
         mask = data['attention_mask'].to(device, dtype=torch.long)
-        token_type_ids = data['token_type_ids'].to(device, dtype=torch.long)
         labels = data['labels'].to(device, dtype=torch.float)
 
-        outputs = model(ids, mask, token_type_ids)
+        outputs = model(ids, mask)
         output_logits = outputs.logits
 
         optimizer.zero_grad()
