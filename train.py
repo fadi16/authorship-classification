@@ -117,7 +117,7 @@ def train_step(epoch, model, optimizer, scheduler, training_loader, class_weight
     model.train()
     # use cross entropy loss (not binary cross entropy loss because that's for multi class multi label - out problem is not multi label)
     # we shouldn't apply a softmax on the output of the model because the CrossEntropyLoss function internally does that
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device, dtype=float))
+    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device, dtype=float) if class_weights else None)
 
     train_losses = []
     for _, data in enumerate(training_loader, 0):
@@ -134,7 +134,8 @@ def train_step(epoch, model, optimizer, scheduler, training_loader, class_weight
         loss.backward()
         optimizer.step()
         if scheduler:
-            tb.add_scalar("lr", scheduler.get_last_lr(), epoch * len(training_loader) + _)
+            current_lr = scheduler.get_last_lr()
+            tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
             scheduler.step()
         optimizer.zero_grad()
 

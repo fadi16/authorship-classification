@@ -55,5 +55,7 @@ model_params1 = {
     WARMUP_RATIO: 0.06,
     USE_CLASS_WEIGHTED_LOSS: False,
     NO_AUTHORS: 5,
-    SEED: 42
+    SEED: 42,
+    OUTPUT_DIR: "./output"
+
 }
