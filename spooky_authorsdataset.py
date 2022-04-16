@@ -35,7 +35,8 @@ class AuthorsDataset(Dataset):
         longest_source_sequence = len(max(self.source_text, key=lambda x: len(x.split())).split())
         print("longest_source_sequence = ", longest_source_sequence)
         self.target_classes = df[AUTHOR_TAG_CSV]
-        self.author_index_to_no_samples = {AUTHOR_TO_INDEX[AUTHOR0]: 0, AUTHOR_TO_INDEX[AUTHOR1]: 0, AUTHOR_TO_INDEX[AUTHOR2]: 0}
+        self.author_index_to_no_samples = {AUTHOR_TO_INDEX[AUTHOR0]: 0, AUTHOR_TO_INDEX[AUTHOR1]: 0,
+                                           AUTHOR_TO_INDEX[AUTHOR2]: 0}
         self.one_hot_target_classes = self.get_one_hot_target_classes()
         self.pad_to_max_length = pad_to_max_length
         assert len(self.source_text) == len(self.one_hot_target_classes)
@@ -78,7 +79,6 @@ class AuthorsDataset(Dataset):
         }
 
 
-# todo test
 # this allows us to do dynamic padding for batches. It significantly speeds up training time
 class Collator:
     def __init__(self, pad_token_id):
@@ -104,6 +104,6 @@ class Collator:
             "labels": torch.tensor(batch_labels, dtype=torch.float)
         }
 
+
 if __name__ == "__main__":
     pass
-

@@ -5,20 +5,16 @@ from typing import List
 import numpy as np
 import pandas as pd
 import torch
+import transformers
 from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from dataset import AuthorsDataset, Collator
+from blog_dataset import AuthorsDataset, Collator, get_datasets_for_n_authors
 from model_params import *
-
-TRAIN_DATA_CSV_PATH = "./data/train.csv"
-VAL_DATA_CSV_PATH = "./data/val.csv"
-TEST_DATA_CSV_PATH = "./data/test.csv"
 
 
 def train_loop(params):
-
     # for reproducibility
     seed_for_reproducability(params[SEED])
 
@@ -28,24 +24,56 @@ def train_loop(params):
     # for producing graphs with tensorboard
     tb = SummaryWriter()
 
-    train_df = pd.read_csv(TRAIN_DATA_CSV_PATH)
-    val_df = pd.read_csv(VAL_DATA_CSV_PATH)
+    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, seed=params[SEED])
 
-    if params[MODEL] == BERT:
+    if params[MODEL] == AA:
         tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
-        # model = BertForAuthorshipIdentification(droupout=params[DROUPOUT], checkpoint=[CHECKPOINT])
-        config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=3)
+        config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
         model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
-        print(model)
-        optimizer = torch.optim.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
+        optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
+        scheduler = None
+        if params[USE_SCHEDULER]:
+            no_training_steps = params[TRAIN_EPOCHS] * (len(train_df) // params[TRAIN_BATCH_SIZE])
+            no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
+            scheduler = transformers.get_linear_schedule_with_warmup(optimizer=optimizer,
+                                                                     num_warmup_steps=no_warmup_steps,
+                                                                     num_training_steps=no_training_steps)
     else:
         raise Exception("Unknown Model")
 
-    train_dataset = AuthorsDataset(train_df, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], pad_to_max_length=False)
-    val_dataset = AuthorsDataset(val_df, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], pad_to_max_length=False)
+    train_dataset = AuthorsDataset(train_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+                                   pad_to_max_length=False)
+    val_dataset = AuthorsDataset(val_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+                                 pad_to_max_length=False)
+    test_dataset = AuthorsDataset(test_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+                                  pad_to_max_length=False)
 
-    class_weights = get_ens_class_weights(params[BETA_FOR_WEIGHTED_CLASS_LOSS], train_dataset.author_index_to_no_samples)
-    class_weights.to(device, dtype=torch.float)
+    #####################################
+    print("check if split is stratified")
+    n = params[NO_AUTHORS]
+    print(train_dataset.author_index_to_no_samples)
+    sum_train_samples = sum(train_dataset.author_index_to_no_samples.values())
+    train_samples = [train_dataset.author_index_to_no_samples[i] / sum_train_samples for i in range(n)]
+    print(train_samples)
+
+    print(val_dataset.author_index_to_no_samples)
+    sum_val_samples = sum(val_dataset.author_index_to_no_samples.values())
+    val_samples = [val_dataset.author_index_to_no_samples[i] / sum_val_samples for i in range(n)]
+    print(val_samples)
+
+    print(test_dataset.author_index_to_no_samples)
+    sum_test_samples = sum(test_dataset.author_index_to_no_samples.values())
+    test_samples = [test_dataset.author_index_to_no_samples[i] / sum_test_samples for i in range(n)]
+    print(test_samples)
+    ######################################
+
+    if params[USE_CLASS_WEIGHTED_LOSS]:
+        class_weights = get_ens_class_weights(params[BETA_FOR_WEIGHTED_CLASS_LOSS],
+                                              train_dataset.author_index_to_no_samples)
+        class_weights.to(device, dtype=torch.float)
+
+    else:
+        class_weights = None
 
     collator = Collator(pad_token_id=tokenizer.pad_token_id)
 
@@ -68,7 +96,11 @@ def train_loop(params):
     best_log_loss = 1
     print("begin training")
     for epoch in range(params[TRAIN_EPOCHS]):
-        train_step(epoch, model, optimizer, train_loader, class_weights, device, tb)
+        print(f"Begin epoch {epoch}")
+        # todo
+        log_loss = val_step(epoch, model, val_loader, device, tb)
+
+        train_step(epoch, model, optimizer, scheduler, train_loader, class_weights, device, tb)
         log_loss = val_step(epoch, model, val_loader, device, tb)
 
         if log_loss < best_log_loss:
@@ -78,17 +110,18 @@ def train_loop(params):
             model_checkpoint_path = os.path.join(params[OUTPUT_DIR], "checkpoints")
             model.save_pretrained(model_checkpoint_path)
             tokenizer.save_pretrained(model_checkpoint_path)
-            print("SAVED MODEL AT " + model_checkpoint_path + "\n")
+            print(f"SAVED MODEL AT from epoch {epoch} at " + model_checkpoint_path + "\n")
 
-        print(f"Epoch {epoch} log_loss = {log_loss}, best log_loss = {best_log_loss}")
+        print(f"Finished Epoch {epoch} log_loss = {log_loss}, best log_loss = {best_log_loss}")
         print("**" * 30)
 
 
-def train_step(epoch, model, optimizer, training_loader, class_weights, device, tb):
+def train_step(epoch, model, optimizer, scheduler, training_loader, class_weights, device, tb):
     model.train()
     # use cross entropy loss (not binary cross entropy loss because that's for multi class multi label - out problem is not multi label)
     # we shouldn't apply a softmax on the output of the model because the CrossEntropyLoss function internally does that
     loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device, dtype=float))
+
     train_losses = []
     for _, data in enumerate(training_loader, 0):
         ids = data['input_ids'].to(device, dtype=torch.long)
@@ -97,14 +130,16 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
 
         outputs = model(ids, mask)
         output_logits = outputs.logits
-
-        optimizer.zero_grad()
         loss = loss_fn(output_logits, labels)
-        train_losses.append(loss.item())
 
-        optimizer.zero_grad()
+        train_losses.append(loss.item())
+        # order from https://huggingface.co/docs/transformers/training
         loss.backward()
         optimizer.step()
+        if scheduler:
+            tb.add_scalar("lr", scheduler.get_last_lr(), epoch * len(training_loader) + _)
+            scheduler.step()
+        optimizer.zero_grad()
 
     average_train_loss = np.mean(train_losses)
     tb.add_scalar("train_loss", average_train_loss, epoch)
@@ -114,7 +149,7 @@ def train_step(epoch, model, optimizer, training_loader, class_weights, device, 
 def val_step(epoch, model, val_loader, device, tb):
     model.eval()
     all_labels = []
-    all_outputs_with_sigmoid = []
+    # all_outputs_with_sigmoid = []
     all_outputs_with_softmax = []
     val_losses = []
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -130,31 +165,32 @@ def val_step(epoch, model, val_loader, device, tb):
             val_losses.append(loss.item())
 
             all_labels.extend(labels.cpu().detach().numpy().tolist())
-            all_outputs_with_sigmoid.extend(torch.sigmoid(output_logits).cpu().detach().numpy().tolist())
+            # all_outputs_with_sigmoid.extend(torch.sigmoid(output_logits).cpu().detach().numpy().tolist())
             all_outputs_with_softmax.extend(torch.softmax(output_logits, dim=1).cpu().detach().numpy().tolist())
 
-    log_loss_sigmoid, accuracy_sigmoid, f1_score_micro_sigmoid, f1_score_macro_sigmoid = get_eval_scores(all_outputs_with_sigmoid, all_labels)
-    log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(all_outputs_with_softmax, all_labels)
+    # log_loss_sigmoid, accuracy_sigmoid, f1_score_micro_sigmoid, f1_score_macro_sigmoid = get_eval_scores(
+    #     all_outputs_with_sigmoid, all_labels)
+    log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(
+        all_outputs_with_softmax, all_labels)
 
     average_val_loss = np.mean(val_losses)
 
     # results with sigmoid and softmax
     print(f"Average Validation Loss = {average_val_loss}")
     print(f"** Finished validating epoch {epoch} **")
-    print(f"Accuracy Score = {accuracy_sigmoid}")
-    print(f"F1 Score (Micro) = {f1_score_micro_sigmoid}")
-    print(f"F1 Score (Macro) = {f1_score_macro_sigmoid}")
-    print(f"Multi Class Log Loss (sigmoid) = {log_loss_sigmoid}")
+    print(f"Accuracy Score = {accuracy_softmax}")
+    print(f"F1 Score (Micro) = {f1_score_micro_softmax}")
+    print(f"F1 Score (Macro) = {f1_score_macro_softmax}")
     print(f"Multi Class Log Loss (softmax) = {log_loss_softmax}")
 
     tb.add_scalar("val_loss", average_val_loss, epoch)
-    tb.add_scalar("val_accuracy", accuracy_sigmoid, epoch)
-    tb.add_scalar("val_f1_score_macro", f1_score_macro_sigmoid, epoch)
-    tb.add_scalar("val_f1_score_micro", f1_score_micro_sigmoid, epoch)
-    tb.add_scalar("val_log_loss_sigmoid", log_loss_sigmoid, epoch)
+    tb.add_scalar("val_accuracy", accuracy_softmax, epoch)
+    tb.add_scalar("val_f1_score_macro", f1_score_macro_softmax, epoch)
+    tb.add_scalar("val_f1_score_micro", f1_score_micro_softmax, epoch)
+    # tb.add_scalar("val_log_loss_sigmoid", log_loss_sigmoid, epoch)
     tb.add_scalar("val_log_loss_softmax", log_loss_softmax, epoch)
 
-    return log_loss_sigmoid
+    return average_val_loss
 
 
 def get_eval_scores(outputs, labels):
@@ -182,7 +218,7 @@ def get_ens_class_weights(beta, class_to_no_samples):
 
     # normalize to make the total loss roughly in the same scale when applying the weights
     sum_weights = sum(weights)
-    weights = [3 * w / sum_weights for w in weights]
+    weights = [len(class_to_no_samples) * w / sum_weights for w in weights]
     return torch.tensor(weights, dtype=torch.float32)
 
 
@@ -206,4 +242,4 @@ def seed_for_reproducability(seed=42):
 
 
 if __name__ == "__main__":
-    train_loop(model_params_1)
+    train_loop(model_params1)
