@@ -97,9 +97,6 @@ def train_loop(params):
     print("begin training")
     for epoch in range(params[TRAIN_EPOCHS]):
         print(f"Begin epoch {epoch}")
-        # todo
-        log_loss = val_step(epoch, model, val_loader, device, tb)
-
         train_step(epoch, model, optimizer, scheduler, train_loader, class_weights, device, tb)
         log_loss = val_step(epoch, model, val_loader, device, tb)
 
