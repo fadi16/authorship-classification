@@ -1,0 +1,122 @@
+Some weights of the model checkpoint at bert-base-cased were not used when initializing BertForSequenceClassification: ['cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.weight', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias', 'cls.predictions.decoder.weight']
+- This IS expected if you are initializing BertForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing BertForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+Some weights of BertForSequenceClassification were not initialized from the model checkpoint at bert-base-cased and are newly initialized: ['classifier.bias', 'classifier.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+/usr/local/lib/python3.7/dist-packages/transformers/optimization.py:309: FutureWarning: This implementation of AdamW is deprecated and will be removed in a future version. Use the PyTorch implementation torch.optim.AdamW instead, or set `no_deprecation_warning=True` to disable this warning
+  FutureWarning,
+longest_source_sequence =  5420
+longest_source_sequence =  5236
+longest_source_sequence =  5276
+check if split is stratified
+{0: 1601, 1: 2953, 2: 1570, 3: 1605, 4: 1577}
+[0.1720395443799699, 0.3173221577476897, 0.1687083601977219, 0.17246937459703418, 0.16946056307758436]
+{0: 229, 1: 422, 2: 225, 3: 229, 4: 225}
+[0.17218045112781954, 0.3172932330827068, 0.16917293233082706, 0.17218045112781954, 0.16917293233082706]
+{0: 458, 1: 844, 2: 449, 3: 459, 4: 450}
+[0.17218045112781954, 0.3172932330827068, 0.168796992481203, 0.1725563909774436, 0.16917293233082706]
+begin training
+Begin epoch 0
+Average Train Loss = 1.0411156188840263
+Average Validation Loss = 0.8144863953902608
+** Finished validating epoch 0 **
+Accuracy Score = 0.6045112781954888
+F1 Score (Micro) = 0.6045112781954888
+F1 Score (Macro) = 0.5234677728596075
+Multi Class Log Loss (softmax) = 0.8151125770148859
+SAVED MODEL AT from epoch 0 at ./output/checkpoints
+
+Finished Epoch 0 log_loss = 0.8144863953902608, best log_loss = 0.8144863953902608
+************************************************************
+Begin epoch 1
+Average Train Loss = 0.745552994854497
+Average Validation Loss = 0.7002075289686521
+** Finished validating epoch 1 **
+Accuracy Score = 0.6278195488721805
+F1 Score (Micro) = 0.6278195488721805
+F1 Score (Macro) = 0.47514658440950813
+Multi Class Log Loss (softmax) = 0.7014394471865595
+SAVED MODEL AT from epoch 1 at ./output/checkpoints
+
+Finished Epoch 1 log_loss = 0.7002075289686521, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 2
+Average Train Loss = 0.6710883190215893
+Average Validation Loss = 0.793324276804924
+** Finished validating epoch 2 **
+Accuracy Score = 0.5969924812030075
+F1 Score (Micro) = 0.5969924812030075
+F1 Score (Macro) = 0.5175809009392887
+Multi Class Log Loss (softmax) = 0.795627671769012
+Finished Epoch 2 log_loss = 0.793324276804924, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 3
+Average Train Loss = 0.6422960880709065
+Average Validation Loss = 0.8323801677601989
+** Finished validating epoch 3 **
+Accuracy Score = 0.6037593984962406
+F1 Score (Micro) = 0.6037593984962406
+F1 Score (Macro) = 0.5130934227647637
+Multi Class Log Loss (softmax) = 0.8411384236655777
+Finished Epoch 3 log_loss = 0.8323801677601989, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 4
+Average Train Loss = 0.6352296211082509
+Average Validation Loss = 0.7974944808298633
+** Finished validating epoch 4 **
+Accuracy Score = 0.6165413533834586
+F1 Score (Micro) = 0.6165413533834586
+F1 Score (Macro) = 0.4716548491742768
+Multi Class Log Loss (softmax) = 0.7943094265479061
+Finished Epoch 4 log_loss = 0.7974944808298633, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 5
+Average Train Loss = 0.6323303772521532
+Average Validation Loss = 0.7445131293719723
+** Finished validating epoch 5 **
+Accuracy Score = 0.6285714285714286
+F1 Score (Micro) = 0.6285714285714286
+F1 Score (Macro) = 0.47525469653256963
+Multi Class Log Loss (softmax) = 0.7386627322374443
+Finished Epoch 5 log_loss = 0.7445131293719723, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 6
+Average Train Loss = 0.6292115234632754
+Average Validation Loss = 0.8315934875891322
+** Finished validating epoch 6 **
+Accuracy Score = 0.6045112781954888
+F1 Score (Micro) = 0.6045112781954888
+F1 Score (Macro) = 0.4675466366009412
+Multi Class Log Loss (softmax) = 0.8345256038217452
+Finished Epoch 6 log_loss = 0.8315934875891322, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 7
+Average Train Loss = 0.6222184020848373
+Average Validation Loss = 0.7712652669066474
+** Finished validating epoch 7 **
+Accuracy Score = 0.5578947368421052
+F1 Score (Micro) = 0.5578947368421052
+F1 Score (Macro) = 0.47027538618491416
+Multi Class Log Loss (softmax) = 0.7682086867107435
+Finished Epoch 7 log_loss = 0.7712652669066474, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 8
+Average Train Loss = 0.6176384382337904
+Average Validation Loss = 0.7897888237521762
+** Finished validating epoch 8 **
+Accuracy Score = 0.5616541353383459
+F1 Score (Micro) = 0.5616541353383459
+F1 Score (Macro) = 0.4649698305711965
+Multi Class Log Loss (softmax) = 0.7866858433256059
+Finished Epoch 8 log_loss = 0.7897888237521762, best log_loss = 0.7002075289686521
+************************************************************
+Begin epoch 9
+Average Train Loss = 0.6145296973064196
+Average Validation Loss = 0.7821373758571488
+** Finished validating epoch 9 **
+Accuracy Score = 0.531578947368421
+F1 Score (Micro) = 0.531578947368421
+F1 Score (Macro) = 0.46286791673418853
+Multi Class Log Loss (softmax) = 0.7838996315770523
+Finished Epoch 9 log_loss = 0.7821373758571488, best log_loss = 0.7002075289686521
+************************************************************

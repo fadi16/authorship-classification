@@ -10,11 +10,85 @@ from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from blog_dataset import AuthorsDataset, Collator, get_datasets_for_n_authors
+from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors_AA, get_datasets_for_n_authors_AV, \
+    AuthorsDatasetAV, CollatorAV
 from model_params import *
+from utils import *
 
 
-def train_loop(params):
+def train_loop_AV(params):
+    # for reproducibility
+    seed_for_reproducability(params[SEED])
+
+    # use gpu if possible
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # for producing graphs with tensorboard
+    tb = SummaryWriter()
+    train_pos, train_neg, val_pos, val_neg, test_pos, test_neg = get_datasets_for_n_authors_AV(n=params[NO_AUTHORS],
+                                                                                               val_size=0.1,
+                                                                                               test_size=0.2,
+                                                                                               seed=params[SEED],
+                                                                                               m=2)
+    print(f"train pos / neg = {len(train_pos) / len(train_neg)}")
+    print(f"val pos / neg = {len(val_pos) / len(val_neg)}")
+    print(f"test pos / neg = {len(test_pos) / len(test_neg)}")
+
+    tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
+    config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
+    model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
+    optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
+    scheduler = None
+    if params[USE_SCHEDULER]:
+        no_training_steps = params[TRAIN_EPOCHS] * ((len(train_pos) + len(train_neg)) // params[TRAIN_BATCH_SIZE])
+        no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
+        scheduler = transformers.get_linear_schedule_with_warmup(optimizer=optimizer,
+                                                                 num_warmup_steps=no_warmup_steps,
+                                                                 num_training_steps=no_training_steps)
+
+    train_dataset = AuthorsDatasetAV(train_pos, train_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    val_dataset = AuthorsDatasetAV(val_pos, val_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    test_dataset = AuthorsDatasetAV(test_pos, test_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+
+    collator = CollatorAV(pad_token_id=tokenizer.pad_token_id)
+
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=params[TRAIN_BATCH_SIZE],
+        shuffle=True,
+        num_workers=0,
+        collate_fn=collator.collate_batch
+    )
+
+    val_loader = DataLoader(
+        dataset=val_dataset,
+        batch_size=params[VALID_BATCH_SIZE],
+        shuffle=True,
+        num_workers=0,
+        collate_fn=collator.collate_batch
+    )
+
+    best_loss = 1
+    print("begin training")
+    for epoch in range(params[TRAIN_EPOCHS]):
+        print(f"Begin epoch {epoch}")
+        train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
+        val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
+
+        if val_loss < best_loss:
+            best_loss = val_loss
+
+            # save the best model so far
+            model_checkpoint_path = os.path.join(params[OUTPUT_DIR], "checkpoints")
+            model.save_pretrained(model_checkpoint_path)
+            tokenizer.save_pretrained(model_checkpoint_path)
+            print(f"SAVED MODEL AT from epoch {epoch} at " + model_checkpoint_path + "\n")
+
+        print(f"Finished Epoch {epoch} log_loss = {val_loss}, best log_loss = {best_loss}")
+        print("**" * 30)
+
+
+def train_loop_AA(params):
     # for reproducibility
     seed_for_reproducability(params[SEED])
 
@@ -24,29 +98,26 @@ def train_loop(params):
     # for producing graphs with tensorboard
     tb = SummaryWriter()
 
-    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, seed=params[SEED])
+    train_df, val_df, test_df = get_datasets_for_n_authors_AA(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, )
 
-    if params[MODEL] == AA:
-        tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
-        config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
-        model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
-        optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
-        scheduler = None
-        if params[USE_SCHEDULER]:
-            no_training_steps = params[TRAIN_EPOCHS] * (len(train_df) // params[TRAIN_BATCH_SIZE])
-            no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
-            scheduler = transformers.get_linear_schedule_with_warmup(optimizer=optimizer,
-                                                                     num_warmup_steps=no_warmup_steps,
-                                                                     num_training_steps=no_training_steps)
-    else:
-        raise Exception("Unknown Model")
+    tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
+    config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
+    model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
+    optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
+    scheduler = None
+    if params[USE_SCHEDULER]:
+        no_training_steps = params[TRAIN_EPOCHS] * (len(train_df) // params[TRAIN_BATCH_SIZE])
+        no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
+        scheduler = transformers.get_linear_schedule_with_warmup(optimizer=optimizer,
+                                                                 num_warmup_steps=no_warmup_steps,
+                                                                 num_training_steps=no_training_steps)
 
-    train_dataset = AuthorsDataset(train_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+    train_dataset = AuthorsDatasetAA(train_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+                                     pad_to_max_length=False)
+    val_dataset = AuthorsDatasetAA(val_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
                                    pad_to_max_length=False)
-    val_dataset = AuthorsDataset(val_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
-                                 pad_to_max_length=False)
-    test_dataset = AuthorsDataset(test_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
-                                  pad_to_max_length=False)
+    test_dataset = AuthorsDatasetAA(test_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
+                                    pad_to_max_length=False)
 
     #####################################
     print("check if split is stratified")
@@ -75,7 +146,7 @@ def train_loop(params):
     else:
         class_weights = None
 
-    collator = Collator(pad_token_id=tokenizer.pad_token_id)
+    collator = CollatorAA(pad_token_id=tokenizer.pad_token_id)
 
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -93,12 +164,12 @@ def train_loop(params):
         collate_fn=collator.collate_batch
     )
 
-    best_log_loss = 1
+    best_log_loss = 1000
     print("begin training")
     for epoch in range(params[TRAIN_EPOCHS]):
         print(f"Begin epoch {epoch}")
-        train_step(epoch, model, optimizer, scheduler, train_loader, class_weights, device, tb)
-        log_loss = val_step(epoch, model, val_loader, device, tb)
+        train_step_AA(epoch, model, optimizer, scheduler, train_loader, class_weights, device, tb)
+        log_loss = val_step_AA(epoch, model, val_loader, device, tb)
 
         if log_loss < best_log_loss:
             best_log_loss = log_loss
@@ -113,11 +184,13 @@ def train_loop(params):
         print("**" * 30)
 
 
-def train_step(epoch, model, optimizer, scheduler, training_loader, class_weights, device, tb):
+def train_step_AA(epoch, model, optimizer, scheduler, training_loader, class_weights, device, tb):
     model.train()
-    # use cross entropy loss (not binary cross entropy loss because that's for multi class multi label - out problem is not multi label)
-    # we shouldn't apply a softmax on the output of the model because the CrossEntropyLoss function internally does that
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights.to(device, dtype=float) if class_weights else None)
+    # use cross entropy loss (not binary cross entropy loss because that's for multi class multi label - out problem
+    # is not multi label) we shouldn't apply a softmax on the output of the model because the CrossEntropyLoss
+    # function internally does that
+    loss_fn = torch.nn.CrossEntropyLoss(
+        weight=class_weights.to(device, dtype=float) if class_weights is not None else None)
 
     train_losses = []
     for _, data in enumerate(training_loader, 0):
@@ -134,7 +207,7 @@ def train_step(epoch, model, optimizer, scheduler, training_loader, class_weight
         loss.backward()
         optimizer.step()
         if scheduler:
-            current_lr = scheduler.get_last_lr()
+            current_lr = scheduler.get_last_lr()[0]
             tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
             scheduler.step()
         optimizer.zero_grad()
@@ -144,10 +217,60 @@ def train_step(epoch, model, optimizer, scheduler, training_loader, class_weight
     print(f"Average Train Loss = {average_train_loss}")
 
 
-def val_step(epoch, model, val_loader, device, tb):
+def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, class_weights, device, tb):
+    model.train()
+
+    loss_fn = torch.nn.MSELoss()
+    cos_similarity_fn = torch.nn.CosineSimilarity(dim=1)
+
+    train_losses = []
+    for _, data in enumerate(training_loader, 0):
+        # for our bi-encoder, we use the same encoder to get the embeddings of the 2 sentances, rather than 2 separate
+        # encoders with shared weights because they won't fit on a singe GPU
+
+        # embedding for first sentence
+        ids1 = data['input_ids'][0].to(device, dtype=torch.long)
+        mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
+        outputs1 = model.bert(ids1, mask1)
+        if params[POOLING] == CLS:
+            embedding1 = outputs1.pooler_output
+        elif params[POOLING] == MEAN:
+            embedding1 = mean_pooling(outputs1.last_hidden_state, mask1)
+
+        # embedding for second sentence
+        ids2 = data['input_ids'][1].to(device, dtype=torch.long)
+        mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
+        outputs2 = model.bert(ids2, mask2)
+        if params[POOLING] == CLS:
+            embedding2 = outputs2.pooler_output
+        else:
+            embedding2 = mean_pooling(outputs2.last_hidden_state, mask2)
+
+        cos_similarity = cos_similarity_fn(embedding1, embedding2)
+
+        # 1 if from the first author, -1 if from different authors
+        labels = data['labels'].to(device, dtype=torch.float)
+
+        loss = loss_fn(cos_similarity, labels)
+
+        train_losses.append(loss.item())
+
+        loss.backward()
+        optimizer.step()
+        if scheduler:
+            current_lr = scheduler.get_last_lr()[0]
+            tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
+            scheduler.step()
+        optimizer.zero_grad()
+
+    average_train_loss = np.mean(train_losses)
+    tb.add_scalar("train_loss", average_train_loss, epoch)
+    print(f"Average Train Loss = {average_train_loss}")
+
+
+def val_step_AA(epoch, model, val_loader, device, tb):
     model.eval()
     all_labels = []
-    # all_outputs_with_sigmoid = []
     all_outputs_with_softmax = []
     val_losses = []
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -163,11 +286,8 @@ def val_step(epoch, model, val_loader, device, tb):
             val_losses.append(loss.item())
 
             all_labels.extend(labels.cpu().detach().numpy().tolist())
-            # all_outputs_with_sigmoid.extend(torch.sigmoid(output_logits).cpu().detach().numpy().tolist())
             all_outputs_with_softmax.extend(torch.softmax(output_logits, dim=1).cpu().detach().numpy().tolist())
 
-    # log_loss_sigmoid, accuracy_sigmoid, f1_score_micro_sigmoid, f1_score_macro_sigmoid = get_eval_scores(
-    #     all_outputs_with_sigmoid, all_labels)
     log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(
         all_outputs_with_softmax, all_labels)
 
@@ -185,14 +305,71 @@ def val_step(epoch, model, val_loader, device, tb):
     tb.add_scalar("val_accuracy", accuracy_softmax, epoch)
     tb.add_scalar("val_f1_score_macro", f1_score_macro_softmax, epoch)
     tb.add_scalar("val_f1_score_micro", f1_score_micro_softmax, epoch)
-    # tb.add_scalar("val_log_loss_sigmoid", log_loss_sigmoid, epoch)
     tb.add_scalar("val_log_loss_softmax", log_loss_softmax, epoch)
 
     return average_val_loss
 
 
+def val_step_AV(epoch, model, val_loader, params, device, tb):
+
+    model.eval()
+    all_actual_labels = []
+    all_predictions = []
+    val_losses = []
+
+    loss_fn = torch.nn.MSELoss()
+    cos_similarity_fn = torch.nn.CosineSimilarity(dim=1)
+
+    with torch.no_grad():
+        for _, data in enumerate(val_loader, 0):
+            # embedding for first sentence
+            ids1 = data['input_ids'][0].to(device, dtype=torch.long)
+            mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
+            # get the embeddings from bert, not the classification logits
+            outputs1 = model.bert(ids1, mask1)
+            if params[POOLING] == CLS:
+                embedding1 = outputs1.pooler_output
+            elif params[POOLING] == MEAN:
+                embedding1 = mean_pooling(outputs1.last_hidden_state, mask1)
+
+            # embedding for second sentence
+            ids2 = data['input_ids'][1].to(device, dtype=torch.long)
+            mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
+            outputs2 = model.bert(ids2, mask2)
+            if params[POOLING] == CLS:
+                embedding2 = outputs2.pooler_output
+            else:
+                embedding2 = mean_pooling(outputs2.last_hidden_state, mask2)
+
+            cos_similarity = cos_similarity_fn(embedding1, embedding2)
+
+            # 1 if the 2 from the same author, -1 otherwise
+            labels = data['labels'].to(device, dtype=torch.float)
+
+            loss = loss_fn(cos_similarity, labels)
+            val_losses.append(loss.item())
+
+            all_actual_labels.extend(labels.cpu().detach().numpy().tolist())
+            all_predictions.extend(cos_similarity.cpu().detach().numpy().tolist())
+
+    all_predicted_labels = [0 if pred <= 0 else 1 for pred in all_predictions]
+    accuracy = (np.array(all_actual_labels) == np.array(all_predicted_labels)).sum() / len(all_actual_labels)
+
+    average_val_loss = np.mean(val_losses)
+
+    # results with sigmoid and softmax
+    print(f"Average Validation Loss = {average_val_loss}")
+    print(f"Accuracy Score = {accuracy}")
+
+    tb.add_scalar("val_loss", average_val_loss, epoch)
+    tb.add_scalar("val_accuracy", accuracy, epoch)
+    print(f"** Finished validating epoch {epoch} **")
+
+    return average_val_loss
+
+
 def get_eval_scores(outputs, labels):
-    pred_labels = [get_class_from_probs(output) for output in outputs]
+    pred_labels = [get_one_hot_class_from_probs(output) for output in outputs]
     # no. correctly classified / total number of samples
     accuracy = metrics.accuracy_score(labels, pred_labels)
     f1_score_micro = metrics.f1_score(labels, pred_labels, average='micro')
@@ -205,8 +382,9 @@ def get_eval_scores(outputs, labels):
     return log_loss, accuracy, f1_score_micro, f1_score_macro
 
 
-# weighting classes based on the effective number of samples - from paper Class-Balanced Loss Based on Effective Number of Samples
-# https://openaccess.thecvf.com/content_CVPR_2019/papers/Cui_Class-Balanced_Loss_Based_on_Effective_Number_of_Samples_CVPR_2019_paper.pdf
+# weighting classes based on the effective number of samples - from paper Class-Balanced Loss Based on Effective
+# Number of Samples https://openaccess.thecvf.com/content_CVPR_2019/papers/Cui_Class
+# -Balanced_Loss_Based_on_Effective_Number_of_Samples_CVPR_2019_paper.pdf
 def get_ens_class_weights(beta, class_to_no_samples):
     weights = []
     for cls, no_samples in class_to_no_samples.items():
@@ -220,24 +398,5 @@ def get_ens_class_weights(beta, class_to_no_samples):
     return torch.tensor(weights, dtype=torch.float32)
 
 
-# to be used when we use sigmoid to get the probabilities, cuz sigmoid doesn't not give probabilities that sum to 1
-def rescale_probabilities(probs: List[float]):
-    total = sum(probs)
-    return [prob / total for prob in probs]
-
-
-def get_class_from_probs(probs: List[float]):
-    max_prob = max(probs)
-    return [0 if p != max_prob else 1 for p in probs]
-
-
-def seed_for_reproducability(seed=42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-
-
 if __name__ == "__main__":
-    train_loop(model_params1)
+    train_loop_AV(model_paramsAV1)

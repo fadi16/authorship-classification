@@ -20,6 +20,9 @@ ADAM_EPSILON = "ADAM_EPSILON"
 USE_SCHEDULER = "USE_SCHEDULER"
 WARMUP_RATIO = "WARMUP_RATIO"
 USE_CLASS_WEIGHTED_LOSS = "USE_CLASS_WEIGHTED_LOSS"
+POOLING = "POOLING"
+CLS = "CLS"
+MEAN = "MEAN"
 # todo: need to try warmup and decay
 # todo: model is overfitting
 
@@ -57,5 +60,25 @@ model_params1 = {
     NO_AUTHORS: 5,
     SEED: 42,
     OUTPUT_DIR: "./output"
+
+}
+
+
+model_paramsAV1 = {
+    MODEL : AV,
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 16,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 10,
+    ADAM_EPSILON: 1e-8,
+    LEARNING_RATE: 4e-5,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    USE_CLASS_WEIGHTED_LOSS: False,
+    NO_AUTHORS: 5,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    POOLING: MEAN
 
 }
