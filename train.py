@@ -40,7 +40,7 @@ def train_loop_AV(params):
         dropout=params[DROUPOUT],
         checkpoint=params[CHECKPOINT],
         pooling_method=params[POOLING],
-    )
+    ).to(device)
 
     optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     scheduler = None
@@ -89,9 +89,6 @@ def train_loop_AV(params):
             model.unfreeze_subnetworks()
             bert_frozen = False
             print("Unfroze BERT weights")
-
-        # todo remove
-        val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
 
         train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
         val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
