@@ -27,15 +27,6 @@ def get_AV_dataset_from_AA_dataset(df, m=1, path=None):
     for i in authors_indicies:
         authors_contents_list.append(df.loc[df["Target"] == i]["content"].tolist())
 
-    # make all the arrays equal in length by oversampling, shuffle first
-    # for author_content in authors_contents_list:
-    #     random.shuffle(author_content)
-    # max_length = len(max(authors_contents_list, key=lambda x: len(x)))
-    # for i in range(len(authors_contents_list)):
-    #     author_content = authors_contents_list[i]
-    #     while len(author_content) < max_length:
-    #         author_content.extend(author_content[:max_length - len(author_content)])
-
     # positive matches for each author - samples coming from the same author
     # overall we have N * L positive samples, N is number of authors, L is no texts
     positive_samples = []
@@ -132,6 +123,8 @@ def get_datasets_for_n_authors_AA(n, val_size, test_size, seed=42, path="./data/
 
 
 class AuthorsDatasetAV(Dataset):
+    # [1, 0] means positive sample
+    # [0, 1] means negative sample
     # set pad_to_max_length to false when we want to do dynamic padding
     def __init__(self, positive_samples, negative_samples, tokenizer, max_source_len,
                  pad_to_max_length=False):
@@ -140,8 +133,8 @@ class AuthorsDatasetAV(Dataset):
 
         self.pad_to_max_length = pad_to_max_length
 
-        self.samples = [(p[0].strip(), p[1].strip(), 1) for p in positive_samples]
-        self.samples.extend([(n[0].strip(), n[1].strip(), -1) for n in negative_samples])
+        self.samples = [(p[0].strip(), p[1].strip(), [1, 0]) for p in positive_samples]
+        self.samples.extend([(n[0].strip(), n[1].strip(), [0, 1]) for n in negative_samples])
         random.shuffle(self.samples)
 
     def __len__(self):

@@ -23,6 +23,8 @@ USE_CLASS_WEIGHTED_LOSS = "USE_CLASS_WEIGHTED_LOSS"
 POOLING = "POOLING"
 CLS = "CLS"
 MEAN = "MEAN"
+MULTIPLIER = "MULTIPLIER"
+FREEZE_NO_EPOCHS = "FREEZE_NO_EPOCHS"
 # todo: need to try warmup and decay
 # todo: model is overfitting
 
@@ -79,6 +81,9 @@ model_paramsAV1 = {
     NO_AUTHORS: 5,
     SEED: 42,
     OUTPUT_DIR: "./output",
-    POOLING: MEAN
+    POOLING: MEAN,
+    MULTIPLIER: 2,
+    FREEZE_NO_EPOCHS: 1,
+    DROUPOUT: 0.3
 
 }

@@ -14,6 +14,7 @@ from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_author
     AuthorsDatasetAV, CollatorAV
 from model_params import *
 from utils import *
+from model import *
 
 
 def train_loop_AV(params):
@@ -29,14 +30,18 @@ def train_loop_AV(params):
                                                                                                val_size=0.1,
                                                                                                test_size=0.2,
                                                                                                seed=params[SEED],
-                                                                                               m=2)
+                                                                                               m=params[MULTIPLIER])
     print(f"train pos / neg = {len(train_pos) / len(train_neg)}")
     print(f"val pos / neg = {len(val_pos) / len(val_neg)}")
     print(f"test pos / neg = {len(test_pos) / len(test_neg)}")
 
     tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
-    config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
-    model = AutoModelForSequenceClassification.from_pretrained(params[CHECKPOINT], config=config).to(device)
+    model = BertSiamAV(
+        dropout=params[DROUPOUT],
+        checkpoint=params[CHECKPOINT],
+        pooling_method=params[POOLING],
+    )
+
     optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     scheduler = None
     if params[USE_SCHEDULER]:
@@ -68,10 +73,26 @@ def train_loop_AV(params):
         collate_fn=collator.collate_batch
     )
 
-    best_loss = 1
+    best_loss = 1000
     print("begin training")
+
+    bert_frozen = False
+    if params[FREEZE_NO_EPOCHS] != 0:
+        model.freeze_subnetworks()
+        print("Froze BERT weights")
+
     for epoch in range(params[TRAIN_EPOCHS]):
+
         print(f"Begin epoch {epoch}")
+
+        if bert_frozen and epoch > params[FREEZE_NO_EPOCHS]:
+            model.unfreeze_subnetworks()
+            bert_frozen = False
+            print("Unfroze BERT weights")
+
+        # todo remove
+        val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
+
         train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
         val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
 
@@ -220,38 +241,23 @@ def train_step_AA(epoch, model, optimizer, scheduler, training_loader, class_wei
 def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, class_weights, device, tb):
     model.train()
 
-    loss_fn = torch.nn.MSELoss()
-    cos_similarity_fn = torch.nn.CosineSimilarity(dim=1)
+    loss_fn = torch.nn.BCEWithLogitsLoss()
 
     train_losses = []
     for _, data in enumerate(training_loader, 0):
-        # for our bi-encoder, we use the same encoder to get the embeddings of the 2 sentances, rather than 2 separate
-        # encoders with shared weights because they won't fit on a singe GPU
 
         # embedding for first sentence
         ids1 = data['input_ids'][0].to(device, dtype=torch.long)
         mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
-        outputs1 = model.bert(ids1, mask1)
-        if params[POOLING] == CLS:
-            embedding1 = outputs1.pooler_output
-        elif params[POOLING] == MEAN:
-            embedding1 = mean_pooling(outputs1.last_hidden_state, mask1)
-
-        # embedding for second sentence
         ids2 = data['input_ids'][1].to(device, dtype=torch.long)
         mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
-        outputs2 = model.bert(ids2, mask2)
-        if params[POOLING] == CLS:
-            embedding2 = outputs2.pooler_output
-        else:
-            embedding2 = mean_pooling(outputs2.last_hidden_state, mask2)
 
-        cos_similarity = cos_similarity_fn(embedding1, embedding2)
+        logits = model.forward(ids1, mask1, ids2, mask2)
 
-        # 1 if from the first author, -1 if from different authors
+        # [1, 0] if from the first author, [0, 1] if from different authors
         labels = data['labels'].to(device, dtype=torch.float)
 
-        loss = loss_fn(cos_similarity, labels)
+        loss = loss_fn(logits, labels)
 
         train_losses.append(loss.item())
 
@@ -311,50 +317,32 @@ def val_step_AA(epoch, model, val_loader, device, tb):
 
 
 def val_step_AV(epoch, model, val_loader, params, device, tb):
-
     model.eval()
-    all_actual_labels = []
+    all_labels = []
     all_predictions = []
     val_losses = []
 
-    loss_fn = torch.nn.MSELoss()
-    cos_similarity_fn = torch.nn.CosineSimilarity(dim=1)
+    loss_fn = torch.nn.BCEWithLogitsLoss()
 
     with torch.no_grad():
         for _, data in enumerate(val_loader, 0):
-            # embedding for first sentence
             ids1 = data['input_ids'][0].to(device, dtype=torch.long)
             mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
-            # get the embeddings from bert, not the classification logits
-            outputs1 = model.bert(ids1, mask1)
-            if params[POOLING] == CLS:
-                embedding1 = outputs1.pooler_output
-            elif params[POOLING] == MEAN:
-                embedding1 = mean_pooling(outputs1.last_hidden_state, mask1)
-
-            # embedding for second sentence
             ids2 = data['input_ids'][1].to(device, dtype=torch.long)
             mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
-            outputs2 = model.bert(ids2, mask2)
-            if params[POOLING] == CLS:
-                embedding2 = outputs2.pooler_output
-            else:
-                embedding2 = mean_pooling(outputs2.last_hidden_state, mask2)
 
-            cos_similarity = cos_similarity_fn(embedding1, embedding2)
+            logits = model.forward(ids1, mask1, ids2, mask2)
 
-            # 1 if the 2 from the same author, -1 otherwise
+            # [1, 0] if the 2 from the same author, [0, 1] otherwise
             labels = data['labels'].to(device, dtype=torch.float)
 
-            loss = loss_fn(cos_similarity, labels)
+            loss = loss_fn(logits, labels)
             val_losses.append(loss.item())
 
-            all_actual_labels.extend(labels.cpu().detach().numpy().tolist())
-            all_predictions.extend(cos_similarity.cpu().detach().numpy().tolist())
+            all_labels.extend(labels.cpu().detach().numpy().tolist())
+            all_predictions.extend(torch.sigmoid(logits).cpu().detach().numpy().tolist())
 
-    all_predicted_labels = [0 if pred <= 0 else 1 for pred in all_predictions]
-    accuracy = (np.array(all_actual_labels) == np.array(all_predicted_labels)).sum() / len(all_actual_labels)
-
+    _, accuracy, _, _ = get_eval_scores(all_predictions, all_labels)
     average_val_loss = np.mean(val_losses)
 
     # results with sigmoid and softmax
