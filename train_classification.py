@@ -36,7 +36,7 @@ def train_loop_AV(params):
     print(f"test pos / neg = {len(test_pos) / len(test_neg)}")
 
     tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
-    model = BertSiamAV(
+    model = BertSiam(
         dropout=params[DROUPOUT],
         checkpoint=params[CHECKPOINT],
         pooling_method=params[POOLING],
@@ -238,7 +238,7 @@ def train_step_AA(epoch, model, optimizer, scheduler, training_loader, class_wei
 def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, class_weights, device, tb):
     model.train()
 
-    loss_fn = torch.nn.BCEWithLogitsLoss()
+    loss_fn = torch.nn.MSELoss()
 
     train_losses = []
     for _, data in enumerate(training_loader, 0):
