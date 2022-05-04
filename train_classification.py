@@ -17,95 +17,6 @@ from utils import *
 from model import *
 
 
-def train_loop_AV(params):
-    # for reproducibility
-    seed_for_reproducability(params[SEED])
-
-    # use gpu if possible
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # for producing graphs with tensorboard
-    tb = SummaryWriter()
-    train_pos, train_neg, val_pos, val_neg, test_pos, test_neg = get_datasets_for_n_authors_AV(n=params[NO_AUTHORS],
-                                                                                               val_size=0.1,
-                                                                                               test_size=0.2,
-                                                                                               seed=params[SEED],
-                                                                                               m=params[MULTIPLIER])
-    print(f"train pos / neg = {len(train_pos) / len(train_neg)}")
-    print(f"val pos / neg = {len(val_pos) / len(val_neg)}")
-    print(f"test pos / neg = {len(test_pos) / len(test_neg)}")
-
-    tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
-    model = BertSiam(
-        dropout=params[DROUPOUT],
-        checkpoint=params[CHECKPOINT],
-        pooling_method=params[POOLING],
-    ).to(device)
-
-    optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
-    scheduler = None
-    if params[USE_SCHEDULER]:
-        no_training_steps = params[TRAIN_EPOCHS] * ((len(train_pos) + len(train_neg)) // params[TRAIN_BATCH_SIZE])
-        no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
-        scheduler = transformers.get_linear_schedule_with_warmup(optimizer=optimizer,
-                                                                 num_warmup_steps=no_warmup_steps,
-                                                                 num_training_steps=no_training_steps)
-
-    train_dataset = AuthorsDatasetAV(train_pos, train_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
-    val_dataset = AuthorsDatasetAV(val_pos, val_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
-    test_dataset = AuthorsDatasetAV(test_pos, test_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
-
-    collator = CollatorAV(pad_token_id=tokenizer.pad_token_id)
-
-    train_loader = DataLoader(
-        dataset=train_dataset,
-        batch_size=params[TRAIN_BATCH_SIZE],
-        shuffle=True,
-        num_workers=0,
-        collate_fn=collator.collate_batch
-    )
-
-    val_loader = DataLoader(
-        dataset=val_dataset,
-        batch_size=params[VALID_BATCH_SIZE],
-        shuffle=True,
-        num_workers=0,
-        collate_fn=collator.collate_batch
-    )
-
-    best_loss = 1000
-    print("begin training")
-
-    bert_frozen = False
-    if params[FREEZE_NO_EPOCHS] != 0:
-        model.freeze_subnetworks()
-        print("Froze BERT weights")
-
-    for epoch in range(params[TRAIN_EPOCHS]):
-
-        print(f"Begin epoch {epoch}")
-
-        if bert_frozen and epoch > params[FREEZE_NO_EPOCHS]:
-            model.unfreeze_subnetworks()
-            bert_frozen = False
-            print("Unfroze BERT weights")
-
-        train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
-        val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
-
-        if val_loss < best_loss:
-            best_loss = val_loss
-
-            # save the best model so far
-            model_checkpoint_path = os.path.join(params[OUTPUT_DIR], "checkpoints")
-            model.save_pretrained(model_checkpoint_path)
-            tokenizer.save_pretrained(model_checkpoint_path)
-            print(f"SAVED MODEL AT from epoch {epoch} at " + model_checkpoint_path + "\n")
-
-        print(f"Finished Epoch {epoch} log_loss = {val_loss}, best log_loss = {best_loss}")
-        print("**" * 30)
-
-
 def train_loop_AA(params):
     # for reproducibility
     seed_for_reproducability(params[SEED])
@@ -235,42 +146,6 @@ def train_step_AA(epoch, model, optimizer, scheduler, training_loader, class_wei
     print(f"Average Train Loss = {average_train_loss}")
 
 
-def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, class_weights, device, tb):
-    model.train()
-
-    loss_fn = torch.nn.MSELoss()
-
-    train_losses = []
-    for _, data in enumerate(training_loader, 0):
-
-        # embedding for first sentence
-        ids1 = data['input_ids'][0].to(device, dtype=torch.long)
-        mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
-        ids2 = data['input_ids'][1].to(device, dtype=torch.long)
-        mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
-
-        logits = model.forward(ids1, mask1, ids2, mask2)
-
-        # [1, 0] if from the first author, [0, 1] if from different authors
-        labels = data['labels'].to(device, dtype=torch.float)
-
-        loss = loss_fn(logits, labels)
-
-        train_losses.append(loss.item())
-
-        loss.backward()
-        optimizer.step()
-        if scheduler:
-            current_lr = scheduler.get_last_lr()[0]
-            tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
-            scheduler.step()
-        optimizer.zero_grad()
-
-    average_train_loss = np.mean(train_losses)
-    tb.add_scalar("train_loss", average_train_loss, epoch)
-    print(f"Average Train Loss = {average_train_loss}")
-
-
 def val_step_AA(epoch, model, val_loader, device, tb):
     model.eval()
     all_labels = []
@@ -309,46 +184,6 @@ def val_step_AA(epoch, model, val_loader, device, tb):
     tb.add_scalar("val_f1_score_macro", f1_score_macro_softmax, epoch)
     tb.add_scalar("val_f1_score_micro", f1_score_micro_softmax, epoch)
     tb.add_scalar("val_log_loss_softmax", log_loss_softmax, epoch)
-
-    return average_val_loss
-
-
-def val_step_AV(epoch, model, val_loader, params, device, tb):
-    model.eval()
-    all_labels = []
-    all_predictions = []
-    val_losses = []
-
-    loss_fn = torch.nn.BCEWithLogitsLoss()
-
-    with torch.no_grad():
-        for _, data in enumerate(val_loader, 0):
-            ids1 = data['input_ids'][0].to(device, dtype=torch.long)
-            mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
-            ids2 = data['input_ids'][1].to(device, dtype=torch.long)
-            mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
-
-            logits = model.forward(ids1, mask1, ids2, mask2)
-
-            # [1, 0] if the 2 from the same author, [0, 1] otherwise
-            labels = data['labels'].to(device, dtype=torch.float)
-
-            loss = loss_fn(logits, labels)
-            val_losses.append(loss.item())
-
-            all_labels.extend(labels.cpu().detach().numpy().tolist())
-            all_predictions.extend(torch.sigmoid(logits).cpu().detach().numpy().tolist())
-
-    _, accuracy, _, _ = get_eval_scores(all_predictions, all_labels)
-    average_val_loss = np.mean(val_losses)
-
-    # results with sigmoid and softmax
-    print(f"Average Validation Loss = {average_val_loss}")
-    print(f"Accuracy Score = {accuracy}")
-
-    tb.add_scalar("val_loss", average_val_loss, epoch)
-    tb.add_scalar("val_accuracy", accuracy, epoch)
-    print(f"** Finished validating epoch {epoch} **")
 
     return average_val_loss
 
