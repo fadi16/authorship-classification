@@ -219,4 +219,4 @@ def get_ens_class_weights(beta, class_to_no_samples):
 
 
 if __name__ == "__main__":
-    train_loop_AV(model_paramsAV1)
+    train_loop_AA(model_paramsAV1)

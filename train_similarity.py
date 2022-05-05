@@ -14,6 +14,7 @@ from blog_dataset import *
 from model_params import *
 from utils import *
 from model import *
+from sklearn.metrics.pairwise import cosine_distances
 
 
 def train_loop_AV(params):
@@ -45,6 +46,8 @@ def train_loop_AV(params):
 
     # train val and test dataset construction
     train_dataset = AuthorsDatasetAV(train_pos, train_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    print(f"Training with {len(train_dataset)} samples")
+
     train_dataset_original = AuthorsDatasetAA(train_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
                                               pad_to_max_length=False)
 
@@ -61,6 +64,7 @@ def train_loop_AV(params):
         pooling_method=params[POOLING],
     ).to(device)
 
+
     optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     scheduler = None
     if params[USE_SCHEDULER]:
@@ -70,22 +74,23 @@ def train_loop_AV(params):
                                                                  num_warmup_steps=no_warmup_steps,
                                                                  num_training_steps=no_training_steps)
 
-    collator = CollatorAV(pad_token_id=tokenizer.pad_token_id)
+    collator_av = CollatorAV(pad_token_id=tokenizer.pad_token_id)
+    collator_aa = CollatorAA(pad_token_id=tokenizer.pad_token_id)
 
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=params[TRAIN_BATCH_SIZE],
         shuffle=True,
         num_workers=0,
-        collate_fn=collator.collate_batch
+        collate_fn=collator_av.collate_batch
     )
 
-    train_loader = DataLoader(
+    train_loader_original = DataLoader(
         dataset=train_dataset_original,
         batch_size=params[TRAIN_BATCH_SIZE],
         shuffle=True,
         num_workers=0,
-        collate_fn=collator.collate_batch
+        collate_fn=collator_aa.collate_batch
     )
 
     val_loader = DataLoader(
@@ -93,7 +98,7 @@ def train_loop_AV(params):
         batch_size=params[VALID_BATCH_SIZE],
         shuffle=True,
         num_workers=0,
-        collate_fn=collator.collate_batch
+        collate_fn=collator_av.collate_batch
     )
 
     val_loader_original = DataLoader(
@@ -101,7 +106,7 @@ def train_loop_AV(params):
         batch_size=params[VALID_BATCH_SIZE],
         shuffle=True,
         num_workers=0,
-        collate_fn=collator.collate_batch
+        collate_fn=collator_aa.collate_batch
     )
 
     best_loss = 1000
@@ -121,8 +126,14 @@ def train_loop_AV(params):
             bert_frozen = False
             print("Unfroze BERT weights")
 
-        train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
+        train_loss = train_step_AV(epoch, model, optimizer, scheduler, train_loader, params, None, device, tb)
+        print(f"train_loss = {train_loss}")
+
         val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
+        print(f"val_loss = {val_loss}")
+
+        val_classification_accuracy = val_step_AV_classify(epoch, model, val_loader_original, train_loader_original, params, device, tb)
+        print(f"val_classification_accuracy = {val_classification_accuracy}")
 
         if val_loss < best_loss:
             best_loss = val_loss
@@ -133,7 +144,7 @@ def train_loop_AV(params):
             tokenizer.save_pretrained(model_checkpoint_path)
             print(f"SAVED MODEL AT from epoch {epoch} at " + model_checkpoint_path + "\n")
 
-        print(f"Finished Epoch {epoch} log_loss = {val_loss}, best log_loss = {best_loss}")
+        print(f"Finished Epoch {epoch} val_loss = {val_loss}, best val_loss = {best_loss}")
         print("**" * 30)
 
 
@@ -144,7 +155,6 @@ def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, c
 
     train_losses = []
     for _, data in enumerate(training_loader, 0):
-
         # embedding for first sentence
         ids1 = data['input_ids'][0].to(device, dtype=torch.long)
         mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
@@ -170,7 +180,7 @@ def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, c
 
     average_train_loss = np.mean(train_losses)
     tb.add_scalar("train_loss", average_train_loss, epoch)
-    print(f"Average Train Loss = {average_train_loss}")
+    return average_train_loss
 
 
 def val_step_AV(epoch, model, val_loader, params, device, tb):
@@ -197,24 +207,28 @@ def val_step_AV(epoch, model, val_loader, params, device, tb):
     average_val_loss = np.mean(val_losses)
 
     tb.add_scalar("val_loss", average_val_loss, epoch)
-    print(f"** Finished validating epoch {epoch} **")
-
     return average_val_loss
 
 
 def val_step_AV_classify(epoch, model, original_val_loader, original_train_loader, params, device, tb):
     model.eval()
-    val_losses = []
 
-    loss_fn = torch.nn.MSELoss()
+    # classify based on the authors of the top_k highest ranked samples in the training set
+    top_k = 10
 
     val_embeddings = []
     train_embeddings = []
+
+    train_labels = []
+    actual_val_labels = []
+    predicted_val_labels = []
 
     with torch.no_grad():
         for _, data in enumerate(original_val_loader, 0):
             ids = data['input_ids'].to(device, dtype=torch.long)
             mask = data['attention_mask'].to(device, dtype=torch.long)
+            labels = data['labels'].to(device, dtype=torch.float)
+            actual_val_labels.extend(labels.tolist())
 
             embeddings = model.get_embedding(ids, mask).tolist()
             val_embeddings.extend(embeddings)
@@ -222,25 +236,33 @@ def val_step_AV_classify(epoch, model, original_val_loader, original_train_loade
         for _, data in enumerate(original_train_loader, 0):
             ids = data['input_ids'].to(device, dtype=torch.long)
             mask = data['attention_mask'].to(device, dtype=torch.long)
+            labels = data['labels'].to(device, dtype=torch.float)
+            train_labels.extend(labels.tolist())
 
             embeddings = model.get_embedding(ids, mask).tolist()
-            val_embeddings.extend(embeddings)
+            train_embeddings.extend(embeddings)
 
+        val_embeddings = np.array(val_embeddings)
+        train_embeddings = np.array(train_embeddings)
 
-    average_val_loss = np.mean(val_losses)
+        for i in range(len(val_embeddings)):
+            candidate_labels = []
 
-def get_eval_scores(outputs, labels):
-    pred_labels = [get_one_hot_class_from_probs(output) for output in outputs]
-    # no. correctly classified / total number of samples
-    accuracy = metrics.accuracy_score(labels, pred_labels)
-    f1_score_micro = metrics.f1_score(labels, pred_labels, average='micro')
-    f1_score_macro = metrics.f1_score(labels, pred_labels, average='macro')
+            val_embedding = [val_embeddings[i]]
+            cos_sims = cosine_distances(val_embedding, train_embeddings)
+            sorted_indicies = np.argsort(cos_sims)[0][:top_k]
+            for topk_index in sorted_indicies:
+                candidate_label = train_labels[topk_index]
+                candidate_labels.append(candidate_label.index(max(candidate_label)))
 
-    probs = [rescale_probabilities(output) for output in outputs]
-    # this clips probabilities - like they do in the experiment (they even use the same parameter)
-    log_loss = metrics.log_loss(labels, probs)
+            # now we choose the label with the highest count
+            voted_label = max(set(candidate_labels), key = candidate_labels.count)
+            predicted_val_labels.append([0 if j != voted_label else 1 for j in range(params[NO_AUTHORS])])
 
-    return log_loss, accuracy, f1_score_micro, f1_score_macro
+    accuracy = metrics.accuracy_score(actual_val_labels, predicted_val_labels)
+    tb.add_scalar("classification_accuracy", accuracy, epoch)
+
+    return accuracy
 
 
 if __name__ == "__main__":

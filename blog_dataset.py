@@ -29,6 +29,8 @@ def get_AV_dataset_from_AA_dataset(df, m=1, path=None):
 
     # positive matches for each author - samples coming from the same author
     # overall we have N * L positive samples, N is number of authors, L is no texts
+
+    # todo do something here if u want to increase the number of positive samples
     positive_samples = []
     for author_content in authors_contents_list:
         for i in range(len(author_content)):

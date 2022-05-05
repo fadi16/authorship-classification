@@ -10,9 +10,9 @@ def mean_pooling(token_embeddings, attention_mask):
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
-class BertSingleAV(torch.nn.Module):
+class BertSingle(torch.nn.Module):
     def __init__(self, dropout=0.3, checkpoint="bert-base-cased", pooling_method=MEAN):
-        super(BertSingleAV, self).__init__()
+        super(BertSingle, self).__init__()
 
         self.pooling_method = pooling_method
 
@@ -36,25 +36,25 @@ class BertSingleAV(torch.nn.Module):
         return embedding
 
 
-class BertSiamAV(torch.nn.Module):
+class BertSiam(torch.nn.Module):
     def __init__(self, dropout=0.3, checkpoint="bert-base-cased", pooling_method=MEAN):
-        super(BertSiamAV, self).__init__()
+        super(BertSiam, self).__init__()
         # use the same bert for the bi-encoder, rather than 2 with shared weights
         # 2 individual berts won't fit on a single gpu
-        self.subnet1 = BertSingleAV(dropout, checkpoint, pooling_method)
+        self.subnet1 = BertSingle(dropout, checkpoint, pooling_method).to()
         self.subnet2 = self.subnet1
-
-        # activation? No activation - similar to BertForSequenceClassification
-        self.classifier = torch.nn.Linear(in_features=512 * 3, out_features=2)
+        # todo
+        self.cosine_sim = torch.nn.CosineSimilarity(dim=1)
 
     def forward(self, ids1, mask1, ids2, mask2):
-        embedding1 = self.subnet1(ids1, mask1)
-        embedding2 = self.subnet2(ids2, mask2)
-        # the classification objective function from https://arxiv.org/pdf/1908.10084.pdf
-        # todo check
-        concatenated_embedding = torch.cat((embedding1, embedding2, torch.sub(embedding1, embedding2)), dim=1)
-        logits = self.classifier(concatenated_embedding)
-        return logits
+        embedding1 = self.subnet1.forward(ids1, mask1)
+        embedding2 = self.subnet2.forward(ids2, mask2)
+
+        similarity = self.cosine_sim(embedding1, embedding2)
+        return similarity
+
+    def get_embedding(self, ids, mask):
+        return self.subnet1.forward(ids, mask)
 
     def freeze_subnetworks(self):
         # l1 in the subnetwork corresponds to bert
@@ -66,3 +66,11 @@ class BertSiamAV(torch.nn.Module):
         for parameter in self.subnet1.l1.parameters():
             parameter.requires_grad = True
 
+    # todo
+    def save_pretrained(self, model_checkpoint_path):
+        # the only thing that needs saving is the subnetwork - both are the same
+        torch.save(self.subnet1.state_dict(), model_checkpoint_path)
+
+    def load_fine_tuned_weights(self, model_checkpoint_path):
+        state = torch.load(model_checkpoint_path)
+        self.subnet1.load_state_dict(state)
