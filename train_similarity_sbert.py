@@ -151,11 +151,11 @@ class ClassificationEvaluator(SentenceEvaluator):
                 voted_label = max(set(candidate_labels), key=candidate_labels.count)
                 predicted_val_labels.append(voted_label)
 
-                predictions_df = pd.DataFrame({
-                    "predicted_labels": predicted_val_labels,
-                    "actual_labels": self.val_labels
-                })
-                predictions_df.to_csv(f"eval_authors{len(set(self.val_labels))}_topk{top_k}.csv")
+            predictions_df = pd.DataFrame({
+                "predicted_labels": predicted_val_labels,
+                "actual_labels": self.val_labels
+            })
+            predictions_df.to_csv(f"eval_authors{len(set(self.val_labels))}_topk{top_k}.csv")
 
             accuracy = metrics.accuracy_score(self.val_labels, predicted_val_labels)
             top_k_accuracies.append(accuracy)
