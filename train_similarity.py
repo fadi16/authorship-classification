@@ -5,6 +5,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 import torch
+import tqdm.std
 import transformers
 from sklearn import metrics
 from torch.utils.data import DataLoader
@@ -15,7 +16,6 @@ from model_params import *
 from utils import *
 from model import *
 from sklearn.metrics.pairwise import cosine_distances
-
 
 def train_loop_AV(params):
     # for reproducibility
@@ -45,16 +45,16 @@ def train_loop_AV(params):
     tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
 
     # train val and test dataset construction
-    train_dataset = AuthorsDatasetAV(train_pos, train_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    train_dataset = AuthorsDatasetAV(train_pos, train_neg, params[POSITIVE_LABEL], params[NEGATIVE_LABEL], tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
     print(f"Training with {len(train_dataset)} samples")
 
     train_dataset_original = AuthorsDatasetAA(train_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
                                               pad_to_max_length=False)
 
-    val_dataset = AuthorsDatasetAV(val_pos, val_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    val_dataset = AuthorsDatasetAV(val_pos, val_neg, params[POSITIVE_LABEL], params[NEGATIVE_LABEL], tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
     val_dataset_original = AuthorsDatasetAA(val_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
                                             pad_to_max_length=False)
-    test_dataset = AuthorsDatasetAV(test_pos, test_neg, tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
+    test_dataset = AuthorsDatasetAV(test_pos, test_neg, params[POSITIVE_LABEL], params[NEGATIVE_LABEL], tokenizer, params[MAX_SOURCE_TEXT_LENGTH], False)
 
     ########################
 
@@ -63,7 +63,6 @@ def train_loop_AV(params):
         checkpoint=params[CHECKPOINT],
         pooling_method=params[POOLING],
     ).to(device)
-
 
     optimizer = transformers.AdamW(params=model.parameters(), lr=params[LEARNING_RATE])
     scheduler = None
@@ -115,13 +114,21 @@ def train_loop_AV(params):
     bert_frozen = False
     if params[FREEZE_NO_EPOCHS] != 0:
         model.freeze_subnetworks()
+        bert_frozen = True
         print("Froze BERT weights")
+
+    val_loss = val_step_AV(-1, model, val_loader, params, device, tb)
+    print(f"val_loss = {val_loss}")
+
+    val_classification_accuracy = val_step_AV_classify(-1, model, val_loader_original, train_loader_original,
+                                                       params, device, tb)
+    print(f"val_classification_accuracy = {val_classification_accuracy}")
 
     for epoch in range(params[TRAIN_EPOCHS]):
 
         print(f"Begin epoch {epoch}")
 
-        if bert_frozen and epoch > params[FREEZE_NO_EPOCHS]:
+        if bert_frozen and epoch >= params[FREEZE_NO_EPOCHS]:
             model.unfreeze_subnetworks()
             bert_frozen = False
             print("Unfroze BERT weights")
@@ -132,7 +139,8 @@ def train_loop_AV(params):
         val_loss = val_step_AV(epoch, model, val_loader, params, device, tb)
         print(f"val_loss = {val_loss}")
 
-        val_classification_accuracy = val_step_AV_classify(epoch, model, val_loader_original, train_loader_original, params, device, tb)
+        val_classification_accuracy = val_step_AV_classify(epoch, model, val_loader_original, train_loader_original,
+                                                           params, device, tb)
         print(f"val_classification_accuracy = {val_classification_accuracy}")
 
         if val_loss < best_loss:
@@ -140,8 +148,8 @@ def train_loop_AV(params):
 
             # save the best model so far
             model_checkpoint_path = os.path.join(params[OUTPUT_DIR], "checkpoints")
-            model.save_pretrained(model_checkpoint_path)
             tokenizer.save_pretrained(model_checkpoint_path)
+            model.save_pretrained(os.path.join(model_checkpoint_path, "model.bin"))
             print(f"SAVED MODEL AT from epoch {epoch} at " + model_checkpoint_path + "\n")
 
         print(f"Finished Epoch {epoch} val_loss = {val_loss}, best val_loss = {best_loss}")
@@ -151,58 +159,68 @@ def train_loop_AV(params):
 def train_step_AV(epoch, model, optimizer, scheduler, training_loader, params, class_weights, device, tb):
     model.train()
 
-    loss_fn = torch.nn.MSELoss()
+    #loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.CosineEmbeddingLoss()
 
     train_losses = []
-    for _, data in enumerate(training_loader, 0):
-        # embedding for first sentence
-        ids1 = data['input_ids'][0].to(device, dtype=torch.long)
-        mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
-        ids2 = data['input_ids'][1].to(device, dtype=torch.long)
-        mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
+    with tqdm.std.tqdm(total=len(training_loader)) as pbar:
+        for _, data in enumerate(training_loader, 0):
 
-        logits = model.forward(ids1, mask1, ids2, mask2)
-
-        # 1 if they come from the same author, -1 otherrwise
-        labels = data['labels'].to(device, dtype=torch.float)
-
-        loss = loss_fn(logits, labels)
-
-        train_losses.append(loss.item())
-
-        loss.backward()
-        optimizer.step()
-        if scheduler:
-            current_lr = scheduler.get_last_lr()[0]
-            tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
-            scheduler.step()
-        optimizer.zero_grad()
-
-    average_train_loss = np.mean(train_losses)
-    tb.add_scalar("train_loss", average_train_loss, epoch)
-    return average_train_loss
-
-
-def val_step_AV(epoch, model, val_loader, params, device, tb):
-    model.eval()
-    val_losses = []
-
-    loss_fn = torch.nn.MSELoss()
-
-    with torch.no_grad():
-        for _, data in enumerate(val_loader, 0):
+            # embedding for first sentence
             ids1 = data['input_ids'][0].to(device, dtype=torch.long)
             mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
             ids2 = data['input_ids'][1].to(device, dtype=torch.long)
             mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
 
-            logits = model.forward(ids1, mask1, ids2, mask2)
+            emb1, emb2 = model.forward(ids1, mask1, ids2, mask2)
 
-            # [1, 0] if the 2 from the same author, [0, 1] otherwise
+            # 1 if they come from the same author, -1 otherrwise
             labels = data['labels'].to(device, dtype=torch.float)
 
-            loss = loss_fn(logits, labels)
-            val_losses.append(loss.item())
+            loss = loss_fn(emb1, emb2, labels)
+
+            train_losses.append(loss.item())
+
+            loss.backward()
+            optimizer.step()
+            if scheduler:
+                current_lr = scheduler.get_last_lr()[0]
+                tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
+                scheduler.step()
+            optimizer.zero_grad()
+
+            pbar.update(1)
+
+        average_train_loss = np.mean(train_losses)
+        tb.add_scalar("train_loss", average_train_loss, epoch)
+        return average_train_loss
+
+
+def val_step_AV(epoch, model, val_loader, params, device, tb):
+    print("Begin validation step AV")
+    model.eval()
+    val_losses = []
+
+    #loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.CosineEmbeddingLoss()
+
+    with torch.no_grad():
+        with tqdm.std.tqdm(total=len(val_loader)) as pbar:
+            for _, data in enumerate(val_loader, 0):
+                ids1 = data['input_ids'][0].to(device, dtype=torch.long)
+                mask1 = data['attention_mask'][0].to(device, dtype=torch.long)
+                ids2 = data['input_ids'][1].to(device, dtype=torch.long)
+                mask2 = data['attention_mask'][1].to(device, dtype=torch.long)
+
+                emb1, emb2 = model.forward(ids1, mask1, ids2, mask2)
+
+                # [1, 0] if the 2 from the same author, [0, 1] otherwise
+                labels = data['labels'].to(device, dtype=torch.float)
+
+                loss = loss_fn(emb1, emb2, labels)
+                val_losses.append(loss.item())
+
+                pbar.update(1)
 
     average_val_loss = np.mean(val_losses)
 
@@ -211,17 +229,19 @@ def val_step_AV(epoch, model, val_loader, params, device, tb):
 
 
 def val_step_AV_classify(epoch, model, original_val_loader, original_train_loader, params, device, tb):
+    print("Begin validation classify")
+
     model.eval()
 
     # classify based on the authors of the top_k highest ranked samples in the training set
-    top_k = 10
 
     val_embeddings = []
     train_embeddings = []
 
     train_labels = []
     actual_val_labels = []
-    predicted_val_labels = []
+
+    top_k_accuracies = []
 
     with torch.no_grad():
         for _, data in enumerate(original_val_loader, 0):
@@ -245,24 +265,28 @@ def val_step_AV_classify(epoch, model, original_val_loader, original_train_loade
         val_embeddings = np.array(val_embeddings)
         train_embeddings = np.array(train_embeddings)
 
-        for i in range(len(val_embeddings)):
-            candidate_labels = []
+        for top_k in [3, 5, 7, 10]:
+            predicted_val_labels = []
 
-            val_embedding = [val_embeddings[i]]
-            cos_sims = cosine_distances(val_embedding, train_embeddings)
-            sorted_indicies = np.argsort(cos_sims)[0][:top_k]
-            for topk_index in sorted_indicies:
-                candidate_label = train_labels[topk_index]
-                candidate_labels.append(candidate_label.index(max(candidate_label)))
+            for i in range(len(val_embeddings)):
+                candidate_labels = []
 
-            # now we choose the label with the highest count
-            voted_label = max(set(candidate_labels), key = candidate_labels.count)
-            predicted_val_labels.append([0 if j != voted_label else 1 for j in range(params[NO_AUTHORS])])
+                val_embedding = [val_embeddings[i]]
+                cos_sims = cosine_distances(val_embedding, train_embeddings)
+                sorted_indicies = np.argsort(cos_sims)[0][:top_k]
+                for topk_index in sorted_indicies:
+                    candidate_label = train_labels[topk_index]
+                    candidate_labels.append(candidate_label.index(max(candidate_label)))
 
-    accuracy = metrics.accuracy_score(actual_val_labels, predicted_val_labels)
-    tb.add_scalar("classification_accuracy", accuracy, epoch)
+                # now we choose the label with the highest count
+                voted_label = max(set(candidate_labels), key=candidate_labels.count)
+                predicted_val_labels.append([0 if j != voted_label else 1 for j in range(params[NO_AUTHORS])])
 
-    return accuracy
+            accuracy = metrics.accuracy_score(actual_val_labels, predicted_val_labels)
+            top_k_accuracies.append(accuracy)
+            tb.add_scalar(f"classification_accuracy_{top_k}", accuracy, epoch)
+
+    return top_k_accuracies
 
 
 if __name__ == "__main__":

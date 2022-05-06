@@ -25,8 +25,8 @@ CLS = "CLS"
 MEAN = "MEAN"
 MULTIPLIER = "MULTIPLIER"
 FREEZE_NO_EPOCHS = "FREEZE_NO_EPOCHS"
-# todo: need to try warmup and decay
-# todo: model is overfitting
+POSITIVE_LABEL = "POSITIVE_LABEL"
+NEGATIVE_LABEL = "NEGATIVE_LABEL"
 
 # bert authors recommend:
 # batch sizes: 8, 16, 32, 64, 128. learning rates: 3e-4, 1e-4, 5e-5, 3e-5.
@@ -69,8 +69,8 @@ model_params1 = {
 model_paramsAV1 = {
     MODEL : AV,
     CHECKPOINT: "bert-base-cased",
-    TRAIN_BATCH_SIZE: 16,
-    VALID_BATCH_SIZE: 16,
+    TRAIN_BATCH_SIZE: 32,
+    VALID_BATCH_SIZE: 32,
     TRAIN_EPOCHS: 10,
     ADAM_EPSILON: 1e-8,
     LEARNING_RATE: 4e-5,
@@ -84,6 +84,8 @@ model_paramsAV1 = {
     POOLING: MEAN,
     MULTIPLIER: 2,
     FREEZE_NO_EPOCHS: 1,
-    DROUPOUT: 0.3
+    DROUPOUT: 0.3,
+    POSITIVE_LABEL: 1,
+    NEGATIVE_LABEL: -1
 
 }

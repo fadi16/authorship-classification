@@ -20,7 +20,8 @@ class BertSingle(torch.nn.Module):
         self.l1 = BertModel.from_pretrained(checkpoint)
         self.dropout = torch.nn.Dropout(p=dropout)
         # input is bert pooler, this acts as an embedding layer
-        self.l2 = torch.nn.Linear(in_features=768, out_features=512, bias=False)
+        self.l2 = torch.nn.Linear(in_features=768, out_features=256, bias=False)
+        self.fn2 = torch.nn.Tanh()
 
     def forward(self, ids, mask):
         out = self.l1(ids, mask)
@@ -33,6 +34,7 @@ class BertSingle(torch.nn.Module):
 
         pooled_out_after_dropout = self.dropout(pooled_out)
         embedding = self.l2(pooled_out_after_dropout)
+        embedding = self.fn2(embedding)
         return embedding
 
 
@@ -43,15 +45,13 @@ class BertSiam(torch.nn.Module):
         # 2 individual berts won't fit on a single gpu
         self.subnet1 = BertSingle(dropout, checkpoint, pooling_method).to()
         self.subnet2 = self.subnet1
-        # todo
         self.cosine_sim = torch.nn.CosineSimilarity(dim=1)
 
     def forward(self, ids1, mask1, ids2, mask2):
         embedding1 = self.subnet1.forward(ids1, mask1)
         embedding2 = self.subnet2.forward(ids2, mask2)
 
-        similarity = self.cosine_sim(embedding1, embedding2)
-        return similarity
+        return embedding1, embedding2
 
     def get_embedding(self, ids, mask):
         return self.subnet1.forward(ids, mask)
@@ -66,7 +66,6 @@ class BertSiam(torch.nn.Module):
         for parameter in self.subnet1.l1.parameters():
             parameter.requires_grad = True
 
-    # todo
     def save_pretrained(self, model_checkpoint_path):
         # the only thing that needs saving is the subnetwork - both are the same
         torch.save(self.subnet1.state_dict(), model_checkpoint_path)
