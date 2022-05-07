@@ -298,3 +298,5 @@ if __name__ == "__main__":
     test(params, train_samples, train_labels, test_samples, test_labels, 32, 10)
     test(params, train_samples, train_labels, test_samples, test_labels, 32, best_k)
 
+    print("save embeddings")
+    save_embeddings(model, train_samples, val_samples, test_samples, "./output")
