@@ -1,4 +1,7 @@
+import os.path
+import pickle
 import random
+import sys
 
 import numpy as np
 
@@ -71,8 +74,8 @@ def tsne_plot(embeddings, labels, name, show=False):
     tsne_embeddings = tsne.fit_transform(x)
     tsne_embeddings = np.array(tsne_embeddings)
 
-    plt.figure(figsize=(18, 18))
-    for i in range(max(y)):
+    plt.figure(figsize=(10, 10))
+    for i in range(max(y) + 1):
         ys = np.where(y == i)
         plt.scatter(tsne_embeddings[ys, 0], tsne_embeddings[ys, 1], label=i)
 
@@ -83,24 +86,59 @@ def tsne_plot(embeddings, labels, name, show=False):
         plt.show()
 
 
+def save_embeddings(model, train_samples, val_samples, test_samples, path):
+    train_embeddings = model.encode(train_samples,
+                                    convert_to_numpy=True,
+                                    batch_size=32,
+                                    show_progress_bar=True)
+    val_embeddings = model.encode(train_samples,
+                                  convert_to_numpy=True,
+                                  batch_size=32,
+                                  show_progress_bar=True)
+    test_embeddings = model.encode(train_samples,
+                                   convert_to_numpy=True,
+                                   batch_size=32,
+                                   show_progress_bar=True)
+
+    d = {
+        "train": train_embeddings,
+        "val": val_embeddings,
+        "test": test_embeddings
+    }
+
+    f = open(os.path.join(path, "embeddings.pkl"), "wb")
+    pickle.dump(d, f)
+    f.close()
+
+
 def test(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k):
     model = SentenceTransformer(params[CHECKPOINT])
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
-    accuracy = evaluator(model, output_path="output/")
-    print(f"Test Accuracy = {accuracy}")
+    accuracy = evaluator(model, output_path="output/", save_results=True)
+    print(f"Test Accuracy = {accuracy} with k = {top_k}")
 
 
-def tune_k(params, training_samples, training_labels, val_samples, val_labels, batch_size):
+def tune_k(params, training_samples, training_labels, val_samples, val_labels, batch_size, show=False):
     model = SentenceTransformer(params[CHECKPOINT])
-    evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, list(range(1,50)),
+    candidate_ks = list(range(1, 200))
+    evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size,
+                                        candidate_ks,
                                         10)
     accuracies = evaluator(model, output_path="output/", output_list=True)
+
+    plt.figure(figsize=(10, 10))
+    plt.scatter(candidate_ks, accuracies)
+    plt.title(f'Blogs-{params[NO_AUTHORS]} accuracy for different values of K')
+    plt.savefig(f'k_vs_accuracy.png')
+    if show:
+        plt.show()
 
     best_accuracy = max(accuracies)
     best_k = accuracies.index(best_accuracy) + 1
 
-    print(f"Best Accuracy = {best_accuracy}, with k = {best_k}")
+    print(f"Best Accuracy = {best_accuracy}, with best_k = {best_k}")
+    return best_k
 
 
 class ClassificationEvaluator(SentenceEvaluator):
@@ -114,7 +152,8 @@ class ClassificationEvaluator(SentenceEvaluator):
         self.top_k = top_k
         self.no_authors = len(set(val_labels))
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False) -> float:
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False,
+                 save_results=False) -> float:
         print("** Validation **")
         print("obtaining training samples embeddings")
         train_embeddings = model.encode(self.train_samples,
@@ -127,7 +166,7 @@ class ClassificationEvaluator(SentenceEvaluator):
                                       batch_size=self.batch_size,
                                       show_progress_bar=True)
 
-        tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}")
+        tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
         cos_dists = []
         for i in range(len(val_embeddings)):
@@ -151,11 +190,12 @@ class ClassificationEvaluator(SentenceEvaluator):
                 voted_label = max(set(candidate_labels), key=candidate_labels.count)
                 predicted_val_labels.append(voted_label)
 
-            predictions_df = pd.DataFrame({
-                "predicted_labels": predicted_val_labels,
-                "actual_labels": self.val_labels
-            })
-            predictions_df.to_csv(f"eval_authors{len(set(self.val_labels))}_topk{top_k}.csv")
+            if save_results:
+                predictions_df = pd.DataFrame({
+                    "predicted_labels": predicted_val_labels,
+                    "actual_labels": self.val_labels
+                })
+                predictions_df.to_csv(f"eval_authors{len(set(self.val_labels))}_topk{top_k}.csv")
 
             accuracy = metrics.accuracy_score(self.val_labels, predicted_val_labels)
             top_k_accuracies.append(accuracy)
@@ -203,7 +243,7 @@ def train_AV_with_sbert_contrastive(params):
     val_labels = val_df["Target"].tolist()
 
     evaluator = ClassificationEvaluator(train_samples, train_labels, val_samples, val_labels, params[VALID_BATCH_SIZE],
-                                        [1, 5, 10, 15], 10)
+                                        [10], 10)
 
     # Expects as input two texts and a label of either 0 or 1. If the label == 1, then the distance between the two
     # embeddings is reduced. If the label == 0, then the distance between the embeddings is increased.
@@ -228,10 +268,14 @@ def train_AV_with_sbert_contrastive(params):
               callback=pprint,
               scheduler="warmupconstant")
 
+    return model
+
 
 if __name__ == "__main__":
     seed_for_reproducability()
     params = model_paramsAV1
+
+    model = train_AV_with_sbert_contrastive(params)
 
     # train, val and test splits
     train_df, val_df, test_df = get_datasets_for_n_authors_AA(n=params[NO_AUTHORS],
@@ -248,4 +292,9 @@ if __name__ == "__main__":
     test_samples = test_df["content"].tolist()
     test_labels = test_df["Target"].tolist()
 
-    tune_k(params, train_samples, train_labels, val_samples, val_labels, 32)
+    params[CHECKPOINT] = "./output/checkpoints"
+    best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, 32)
+
+    test(params, train_samples, train_labels, test_samples, test_labels, 32, 10)
+    test(params, train_samples, train_labels, test_samples, test_labels, 32, best_k)
+

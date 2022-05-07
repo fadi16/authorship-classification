@@ -78,7 +78,7 @@ model_paramsAV1 = {
     USE_SCHEDULER: True,
     WARMUP_RATIO: 0.06,
     USE_CLASS_WEIGHTED_LOSS: False,
-    NO_AUTHORS: 5,
+    NO_AUTHORS: 10,
     SEED: 42,
     OUTPUT_DIR: "./output",
     POOLING: MEAN,
