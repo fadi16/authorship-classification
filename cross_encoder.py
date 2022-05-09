@@ -20,54 +20,6 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
 
-def create_pos_neg_pairs(df):
-    # split as described in page ten of this paper https://arxiv.org/pdf/1912.10616.pdf
-    pos_pairs = []
-    neg_pairs = []
-
-    authors_indicies = sorted(set(df["Target"].tolist()))
-    no_authors = len(authors_indicies)
-
-    # list of contents for each author, for author i their content is at the ith index
-    authors_chunks = []
-    for i in authors_indicies:
-        current_author_texts = [text.strip() for text in df.loc[df["Target"] == i]["content"].tolist()]
-
-        # divide authors texts into 4 chuncks
-        current_author_chunks = [arr.tolist() for arr in np.array_split(current_author_texts, 4)]
-        authors_chunks.append(current_author_chunks)
-
-    for i in authors_indicies:
-        chunks_for_current_author = authors_chunks[i]
-        first_chunk = chunks_for_current_author[0]
-        second_chunk = chunks_for_current_author[1]
-
-        pos_pairs_for_current_author = map_chunks(first_chunk, second_chunk)
-        pos_pairs.extend(pos_pairs_for_current_author)
-
-        third_chunk = chunks_for_current_author[2]
-        third_chunk_splitted = [arr.tolist() for arr in
-                                np.array_split(third_chunk, min(no_authors - 1, len(third_chunk)))]
-
-        other_author_indicies = [k for k in authors_indicies if k != i]
-        for j in range(min(len(third_chunk_splitted), no_authors - 1)):
-            other_author_forth_chunk = authors_chunks[other_author_indicies[j]][3]
-            neg_pairs_for_current_chunk = map_chunks(third_chunk_splitted[j], other_author_forth_chunk)
-            neg_pairs.extend(neg_pairs_for_current_chunk)
-
-    return pos_pairs, neg_pairs
-
-
-def map_chunks(texts1, texts2):
-    # map texts between two authors to create negative pairs
-    # the number of texts might not be similar
-    random.shuffle(texts1)
-    random.shuffle(texts2)
-
-    return list(zip(texts1[:len(texts2)], texts2)) if len(texts2) < len(texts1) else list(
-        zip(texts1, texts2[:len(texts1)]))
-
-
 def test_AV(model, threshold, test_pairs, test_labels):
     print("Testing Cross Encoder Accuracy on Authorship Validation")
     pred_scores = model.predict(test_pairs, convert_to_numpy=True, show_progress_bar=True)
@@ -77,7 +29,7 @@ def test_AV(model, threshold, test_pairs, test_labels):
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
-    predictions_df.to_csv(f"test_cross_encoder_AV_eval_authors{len(set(test_labels))}.csv")
+    predictions_df.to_csv(f"AV_authors{len(set(test_labels))}.csv")
     print(f"Test Accuracy = {accuracy}")
 
 
@@ -140,7 +92,7 @@ def train(params):
                                                            seed=params[SEED])
 
     # positive label is 1, negative label is 0
-    train_pos, train_neg = create_pos_neg_pairs(train_df)
+    train_pos, train_neg = create_pos_neg_pairs(train_df, balance=params[BALANCE])
     train_examples = [InputExample(texts=[train_pos[i][0], train_pos[i][1]], label=1) for i in range(len(train_pos))]
     train_examples.extend(
         [InputExample(texts=[train_neg[i][0], train_neg[i][1]], label=0) for i in range(len(train_neg))])

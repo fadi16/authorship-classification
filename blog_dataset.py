@@ -248,6 +248,48 @@ class CollatorAV:
         }
 
 
+def balance(texts, labels):
+    authors_indicies = sorted(set(labels))
+    no_authors = len(authors_indicies)
+
+    authors_texts = [[] for _ in range(no_authors)]
+    for text, label in zip(texts, labels):
+        authors_texts[label].append(text.strip())
+
+    # find the average number of articles by each author
+    no_articles_by_each_author = [labels.count(i) for i in range(no_authors)]
+    mean = np.mean(no_articles_by_each_author)
+    std = np.std(no_articles_by_each_author)
+    length_to_balance_for = int(mean + std)
+
+    for author_index in authors_indicies:
+        current_author_texts = authors_texts[author_index]
+
+        if len(current_author_texts) > length_to_balance_for:
+            current_author_texts = current_author_texts[:length_to_balance_for]
+        else:
+            no_samples_to_add = length_to_balance_for - len(current_author_texts)
+            # randomly oversample
+            random_indicies = np.random.random_integers(low=0, high=len(current_author_texts) - 1,
+                                                        size=no_samples_to_add)
+            for random_index in random_indicies:
+                current_author_texts.append(current_author_texts[random_index])
+
+        authors_texts[author_index] = current_author_texts
+
+    # convert back to texts and labels
+    new_texts = []
+    new_labels = []
+    for author_index in authors_indicies:
+        current_author_texts = authors_texts[author_index]
+        current_author_labels = [author_index] * len(current_author_texts)
+
+        new_texts.extend(current_author_texts)
+        new_labels.extend(current_author_labels)
+
+    return new_texts, new_labels
+
+
 # split dataset into positive pairs (coming from same author) and negative pairs (coming from different authors)
 # the approach is similar to that described in page 9 of this paper https://arxiv.org/pdf/1912.10616.pdf
 # We do the following (for each author):
@@ -257,33 +299,23 @@ class CollatorAV:
 # - merge the pieces from the third chunk with random texts from the other (N-1) authors' forth chunks
 # This results in an equal number of positive and negative pairs in these datasets.
 def create_pos_neg_pairs(df, balance=False):
+    # split as described in page ten of this paper https://arxiv.org/pdf/1912.10616.pdf
+    texts = df["content"].tolist()
+    labels = df["Target"].tolist()
+
+    if balance:
+        texts, labels = balance(texts, labels)
+
     pos_pairs = []
     neg_pairs = []
 
-    authors_indicies = sorted(set(df["Target"].tolist()))
+    authors_indicies = sorted(set(labels))
     no_authors = len(authors_indicies)
-
-    # fine the average number of articles by each author
-    no_articles_by_each_author = [authors_indicies.count(i) for i in range(len(no_authors))]
-    mean = np.mean(no_articles_by_each_author)
-    std = np.std(no_articles_by_each_author)
-    length_to_balance_for = mean + std
 
     # list of contents for each author, for author i their content is at the ith index
     authors_chunks = []
     for i in authors_indicies:
-        current_author_texts = [text.strip() for text in df.loc[df["Target"] == i]["content"].tolist()]
-        random.shuffle(current_author_texts)
-
-        if balance:
-            if len(current_author_texts) > length_to_balance_for:
-                current_author_texts = current_author_texts[:length_to_balance_for]
-            else:
-                no_samples_to_add = length_to_balance_for - len(current_author_texts)
-                # randomly oversample
-                random_indicies = np.random.random_integers(low=0, high=len(current_author_texts)- 1, size=no_samples_to_add)
-                for random_index in random_indicies:
-                    current_author_texts.append(current_author_texts[random_index])
+        current_author_texts = [texts[j].strip() for j in range(len(labels)) if labels[j] == i]
 
         # divide authors texts into 4 chuncks
         current_author_chunks = [arr.tolist() for arr in np.array_split(current_author_texts, 4)]
@@ -300,11 +332,8 @@ def create_pos_neg_pairs(df, balance=False):
         third_chunk = chunks_for_current_author[2]
         third_chunk_splitted = [arr.tolist() for arr in
                                 np.array_split(third_chunk, min(no_authors - 1, len(third_chunk)))]
-        random.shuffle(third_chunk_splitted)
 
         other_author_indicies = [k for k in authors_indicies if k != i]
-        random.shuffle(other_author_indicies)
-
         for j in range(min(len(third_chunk_splitted), no_authors - 1)):
             other_author_forth_chunk = authors_chunks[other_author_indicies[j]][3]
             neg_pairs_for_current_chunk = map_chunks(third_chunk_splitted[j], other_author_forth_chunk)
@@ -325,7 +354,7 @@ def map_chunks(texts1, texts2):
 
 
 # this creates all the datasets needed - more details in READ.me
-def create_all_datasets(no_authors):
+def create_all_datasets(no_authors, balance=False):
     seed_for_reproducability()
 
     # normal AA dataset
@@ -397,4 +426,4 @@ def create_all_datasets(no_authors):
 
 
 if __name__ == "__main__":
-    create_all_datasets(no_authors=50)
+    create_all_datasets(no_authors=10)

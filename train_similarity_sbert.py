@@ -21,54 +21,6 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
 
-def create_pos_neg_pairs(df):
-    # split as described in page ten of this paper https://arxiv.org/pdf/1912.10616.pdf
-    pos_pairs = []
-    neg_pairs = []
-
-    authors_indicies = sorted(set(df["Target"].tolist()))
-    no_authors = len(authors_indicies)
-
-    # list of contents for each author, for author i their content is at the ith index
-    authors_chunks = []
-    for i in authors_indicies:
-        current_author_texts = [text.strip() for text in df.loc[df["Target"] == i]["content"].tolist()]
-
-        # divide authors texts into 4 chuncks
-        current_author_chunks = [arr.tolist() for arr in np.array_split(current_author_texts, 4)]
-        authors_chunks.append(current_author_chunks)
-
-    for i in authors_indicies:
-        chunks_for_current_author = authors_chunks[i]
-        first_chunk = chunks_for_current_author[0]
-        second_chunk = chunks_for_current_author[1]
-
-        pos_pairs_for_current_author = map_chunks(first_chunk, second_chunk)
-        pos_pairs.extend(pos_pairs_for_current_author)
-
-        third_chunk = chunks_for_current_author[2]
-        third_chunk_splitted = [arr.tolist() for arr in
-                                np.array_split(third_chunk, min(no_authors - 1, len(third_chunk)))]
-
-        other_author_indicies = [k for k in authors_indicies if k != i]
-        for j in range(min(len(third_chunk_splitted), no_authors - 1)):
-            other_author_forth_chunk = authors_chunks[other_author_indicies[j]][3]
-            neg_pairs_for_current_chunk = map_chunks(third_chunk_splitted[j], other_author_forth_chunk)
-            neg_pairs.extend(neg_pairs_for_current_chunk)
-
-    return pos_pairs, neg_pairs
-
-
-def map_chunks(texts1, texts2):
-    # map texts between two authors to create negative pairs
-    # the number of texts might not be similar
-    random.shuffle(texts1)
-    random.shuffle(texts2)
-
-    return list(zip(texts1[:len(texts2)], texts2)) if len(texts2) < len(texts1) else list(
-        zip(texts1, texts2[:len(texts1)]))
-
-
 def tsne_plot(embeddings, labels, name, path="./output", show=False):
     tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, n_iter=1000, n_jobs=10)
     x = embeddings
@@ -120,7 +72,8 @@ def test_classification(params, training_samples, training_labels, val_samples, 
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
     accuracy = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
-                                                         f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"), save=True)
+                                                         f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
+                         save=True)
     print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
     return accuracy
 
@@ -255,8 +208,8 @@ class ClassificationEvaluator(SentenceEvaluator):
         return accuracy
 
 
-def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
-                                    train_pair_labels, val_pair_samples, val_pair_labels):
+def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
+                        train_pair_labels, val_pair_samples, val_pair_labels):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     ######## defining the model
@@ -265,20 +218,26 @@ def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_sam
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
     #########################
 
-    # positive label is 1, negative label is 0
-    train_examples = [InputExample(texts=train_pair_samples[i], label=train_pair_labels[i]) for i in
-                      range(len(train_pair_samples))]
+    if params[BALANCE]:
+        train_samples, train_labels = balance(train_samples, train_labels)
+        # todo balance the training pairs too??
+
+    if params[LOSS] != BATCH_HARD_TRIPLET:  # contrastive losses need pairs
+        # positive label is 1, negative label is 0
+        train_examples = [InputExample(texts=train_pair_samples[i], label=train_pair_labels[i]) for i in
+                          range(len(train_pair_samples))]
+
+    else:  # triplet loss needs just the samples
+        train_examples = [InputExample(texts=[train_samples[i]], label=train_labels[i]) for i in
+                          range(len(train_samples))]
 
     train_dataset = SentencesDataset(train_examples, model)
-    print(f"Training with {len(train_pair_labels)} samples")
-
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=params[TRAIN_BATCH_SIZE])
+    print(f"Training with {len(train_dataset)} samples")
 
-    s1s_val = [s1 for s1, _ in val_pair_samples]
-    s2s_val = [s2 for _, s2 in val_pair_samples]
+    evaluator = ClassificationEvaluator(train_samples, train_labels, val_samples, val_labels, params[VALID_BATCH_SIZE],
+                                        [10], 10)
 
-    evaluator = BinaryClassificationEvaluator(sentences1=s1s_val, sentences2=s2s_val, labels=val_pair_labels,
-                                              batch_size=32, show_progress_bar=True)
     if params[LOSS] == CONTRASTIVE:
         # Expects as input two texts and a label of either 0 or 1. If the label == 1, then the distance between the two
         # embeddings is reduced. If the label == 0, then the distance between the embeddings is increased.
@@ -287,8 +246,11 @@ def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_sam
     elif params[LOSS] == ONLINE_CONTRASTIVE:
         train_loss = losses.OnlineContrastiveLoss(model=model, margin=0.5,
                                                   distance_metric=SiameseDistanceMetric.COSINE_DISTANCE)
+    elif params[LOSS] == BATCH_HARD_TRIPLET:
+        train_loss = losses.BatchHardTripletLoss(model=model,
+                                                 distance_metric=losses.BatchHardTripletLossDistanceFunction.cosine_distance)
 
-    no_training_steps = params[TRAIN_EPOCHS] * (len(train_pair_labels) // params[TRAIN_BATCH_SIZE])
+    no_training_steps = params[TRAIN_EPOCHS] * (len(train_dataset) // params[TRAIN_BATCH_SIZE])
     no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
 
     def pprint(score, epoch, steps):
@@ -308,6 +270,21 @@ def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_sam
               scheduler="warmupconstant")
 
     return model
+
+
+def tune_AV_threashold(params, val_pairs, val_labels, model=None):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if model is None:
+        model = SentenceTransformer(params[CHECKPOINT], device=device)
+
+    s1s_val = [s1 for s1, _ in val_pairs]
+    s2s_val = [s2 for _, s2 in val_pairs]
+
+    evaluator = BinaryClassificationEvaluator(sentences1=s1s_val, sentences2=s2s_val, labels=val_labels,
+                                              batch_size=32, show_progress_bar=True)
+
+    ap = evaluator(model, os.path.join(params[OUTPUT_DIR]))
 
 
 def e2e_experiment(params, train, test):
@@ -345,10 +322,11 @@ def e2e_experiment(params, train, test):
     test_pairs = [list(pair) for pair in zip(s1s, s2s)]
     test_labels_pairs = test_pairs_df["label"].tolist()
 
+    model = None
     if train:
-        model = train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_samples, val_labels,
-                                                train_pairs,
-                                                train_labels_pairs, val_pairs, val_labels_pairs)
+        model = train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels,
+                                    train_pairs,
+                                    train_labels_pairs, val_pairs, val_labels_pairs)
     if test:
         # the checkpoint will be here after training
         params[CHECKPOINT] = "./output/checkpoints"
@@ -359,7 +337,7 @@ def e2e_experiment(params, train, test):
         acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_labels_pairs, batch_size=32, model=model)
 
         acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                     batch_size=32, top_k=10,  model=None)
+                                                     batch_size=32, top_k=10, model=None)
         acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                       batch_size=32, top_k=best_k, model=None)
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
@@ -381,5 +359,17 @@ def e2e_experiment(params, train, test):
 
 if __name__ == "__main__":
     seed_for_reproducability()
-    params = bi_encoder_params_online_contrastive
+    params = bi_encoder_params_batch_hard_triplet
     e2e_experiment(params, train=True, test=False)
+
+    # params[CHECKPOINT] = "output/checkpoints"
+    #
+    # val_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_pairs_{params[NO_AUTHORS]}_authors.csv")
+    # s1s = val_pairs_df["s1"].tolist()
+    # s2s = val_pairs_df["s2"].tolist()
+    # val_pairs = [list(pair) for pair in zip(s1s, s2s)]
+    # val_labels_pairs = val_pairs_df["label"].tolist()
+    #
+    # tune_AV_threashold(params, val_pairs=val_pairs, val_labels=val_labels_pairs)
+
+    # e2e_experiment(params, train=True, test=False)
