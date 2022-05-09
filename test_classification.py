@@ -9,7 +9,7 @@ import transformers
 from sklearn import metrics
 from torch.utils.data import DataLoader
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors_AA
+from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors
 from model_params import *
 from utils import *
 
@@ -21,9 +21,7 @@ def test(params):
     # use gpu if possible
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    #test_df = pd.read_csv(f"./data/blog/test_{params_and_scores[NO_AUTHORS]}.csv")
-    _, _, test_df = get_datasets_for_n_authors_AA(params[NO_AUTHORS], 0.1, 0.2, params[SEED])
-    print(test_df[0])
+    test_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_{params[NO_AUTHORS]}_authors.csv")
 
     if params[MODEL] == AA:
         tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])

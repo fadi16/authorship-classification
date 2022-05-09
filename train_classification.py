@@ -27,7 +27,8 @@ def train_loop_AA(params):
     # for producing graphs with tensorboard
     tb = SummaryWriter()
 
-    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, )
+    train_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/train_{params[NO_AUTHORS]}_authors.csv")
+    val_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_{params[NO_AUTHORS]}_authors.csv")
 
     tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
     config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
@@ -45,8 +46,6 @@ def train_loop_AA(params):
                                      pad_to_max_length=False)
     val_dataset = AuthorsDatasetAA(val_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
                                    pad_to_max_length=False)
-    test_dataset = AuthorsDatasetAA(test_df, "content", "Target", tokenizer, params[MAX_SOURCE_TEXT_LENGTH],
-                                    pad_to_max_length=False)
 
     #####################################
     print("check if split is stratified")
@@ -61,10 +60,6 @@ def train_loop_AA(params):
     val_samples = [val_dataset.author_index_to_no_samples[i] / sum_val_samples for i in range(n)]
     print(val_samples)
 
-    print(test_dataset.author_index_to_no_samples)
-    sum_test_samples = sum(test_dataset.author_index_to_no_samples.values())
-    test_samples = [test_dataset.author_index_to_no_samples[i] / sum_test_samples for i in range(n)]
-    print(test_samples)
     ######################################
 
     if params[USE_CLASS_WEIGHTED_LOSS]:
