@@ -219,7 +219,7 @@ def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_la
     #########################
 
     if params[BALANCE]:
-        train_samples, train_labels = balance(train_samples, train_labels)
+        train_samples, train_labels = balance_fn(train_samples, train_labels)
         # todo balance the training pairs too??
 
     if params[LOSS] != BATCH_HARD_TRIPLET:  # contrastive losses need pairs
@@ -287,54 +287,33 @@ def tune_AV_threashold(params, val_pairs, val_labels, model=None):
     ap = evaluator(model, os.path.join(params[OUTPUT_DIR]))
 
 
-def e2e_experiment(params, train, test):
+def e2e_experiment(params, train, test, tune):
     seed_for_reproducability()
 
-    train_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/train_{params[NO_AUTHORS]}_authors.csv")
-    train_samples = train_df["content"].tolist()
-    train_labels = train_df["Target"].tolist()
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
+    val_samples, val_labels = get_samples_and_labels(params[NO_AUTHORS], "val")
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
 
-    val_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_{params[NO_AUTHORS]}_authors.csv")
-    val_samples = val_df["content"].tolist()
-    val_labels = val_df["Target"].tolist()
+    train_pairs, train_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
+    val_pairs, val_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "val")
+    test_pairs, test_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
 
-    test_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_{params[NO_AUTHORS]}_authors.csv")
-    test_samples = test_df["content"].tolist()
-    test_labels = test_df["Target"].tolist()
-
-    ###
-    train_pairs_df = pd.read_csv(
-        f"./data/blog/{params[NO_AUTHORS]}_authors/train_pairs_{params[NO_AUTHORS]}_authors.csv")
-    s1s = train_pairs_df["s1"].tolist()
-    s2s = train_pairs_df["s2"].tolist()
-    train_pairs = [list(pair) for pair in zip(s1s, s2s)]
-    train_labels_pairs = train_pairs_df["label"].tolist()
-
-    val_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_pairs_{params[NO_AUTHORS]}_authors.csv")
-    s1s = val_pairs_df["s1"].tolist()
-    s2s = val_pairs_df["s2"].tolist()
-    val_pairs = [list(pair) for pair in zip(s1s, s2s)]
-    val_labels_pairs = val_pairs_df["label"].tolist()
-
-    test_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_pairs_{params[NO_AUTHORS]}_authors.csv")
-    s1s = test_pairs_df["s1"].tolist()
-    s2s = test_pairs_df["s2"].tolist()
-    test_pairs = [list(pair) for pair in zip(s1s, s2s)]
-    test_labels_pairs = test_pairs_df["label"].tolist()
 
     model = None
     if train:
-        model = train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels,
-                                    train_pairs,
-                                    train_labels_pairs, val_pairs, val_labels_pairs)
-    if test:
+        model = train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pairs,
+                                    train_pairs_labels, val_pairs, val_pairs_labels)
+
+    if tune:
         # the checkpoint will be here after training
         params[CHECKPOINT] = "./output/checkpoints"
-
         best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=False,
                         model=model)
 
-        acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_labels_pairs, batch_size=32, model=model)
+        tune_AV_threashold(params, val_pairs, val_labels, model=None)
+
+    if test:
+        acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
 
         acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                      batch_size=32, top_k=10, model=None)
@@ -359,17 +338,5 @@ def e2e_experiment(params, train, test):
 
 if __name__ == "__main__":
     seed_for_reproducability()
-    params = bi_encoder_params_batch_hard_triplet
-    e2e_experiment(params, train=True, test=False)
-
-    # params[CHECKPOINT] = "output/checkpoints"
-    #
-    # val_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_pairs_{params[NO_AUTHORS]}_authors.csv")
-    # s1s = val_pairs_df["s1"].tolist()
-    # s2s = val_pairs_df["s2"].tolist()
-    # val_pairs = [list(pair) for pair in zip(s1s, s2s)]
-    # val_labels_pairs = val_pairs_df["label"].tolist()
-    #
-    # tune_AV_threashold(params, val_pairs=val_pairs, val_labels=val_labels_pairs)
-
-    # e2e_experiment(params, train=True, test=False)
+    params = bi_encoder_params_batch_hard_triplet_10
+    e2e_experiment(params, train=True, test=False, tune=False)

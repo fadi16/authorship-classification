@@ -12,12 +12,9 @@ from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, SentencesDataset, LoggingHandler, losses, InputExample, models
 from sentence_transformers.cross_encoder import CrossEncoder
 from sentence_transformers.cross_encoder.evaluation import CEBinaryClassificationEvaluator
-from sentence_transformers.evaluation import SentenceEvaluator
 from sklearn import metrics
-import tqdm.std
 from utils import seed_for_reproducability
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
+
 
 
 def test_AV(model, threshold, test_pairs, test_labels):
@@ -82,40 +79,28 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
 def train(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ######## defining the model
+    # defining the model
     model = CrossEncoder(params[CHECKPOINT], device=device, num_labels=1, max_length=params[MAX_SOURCE_TEXT_LENGTH])
-    #########################
-    # train, val and test splits
-    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS],
-                                                           val_size=0.1,
-                                                           test_size=0.2,
-                                                           seed=params[SEED])
 
     # positive label is 1, negative label is 0
-    train_pos, train_neg = create_pos_neg_pairs(train_df, balance=params[BALANCE])
-    train_examples = [InputExample(texts=[train_pos[i][0], train_pos[i][1]], label=1) for i in range(len(train_pos))]
-    train_examples.extend(
-        [InputExample(texts=[train_neg[i][0], train_neg[i][1]], label=0) for i in range(len(train_neg))])
+    train_pairs, train_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
+    train_examples = [InputExample(texts=train_pairs[i], label=train_labels[i]) for i in range(len(train_labels))]
 
     train_dataset = SentencesDataset(train_examples, model)
-    print(f"Training with {len(train_pos + train_neg)} samples")
+    print(f"Training with {len(train_dataset)} samples")
 
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=params[TRAIN_BATCH_SIZE])
 
-    val_pos, val_neg = create_pos_neg_pairs(val_df)
-    val_samples = [[val_pos[i][0], val_pos[i][1]] for i in range(len(val_pos))]
-    val_labels = [1 for _ in range(len(val_pos))]
-    val_samples.extend([[val_neg[i][0], val_neg[i][1]] for i in range(len(val_neg))])
-    val_labels.extend([0 for _ in range(len(val_neg))])
+    val_pairs, val_labels = get_pairs_and_labels(params[NO_AUTHORS], "val")
 
-    no_training_steps = params[TRAIN_EPOCHS] * (len(train_df) // params[TRAIN_BATCH_SIZE])
+    no_training_steps = params[TRAIN_EPOCHS] * (len(train_dataset) // params[TRAIN_BATCH_SIZE])
     no_warmup_steps = params[WARMUP_RATIO] * no_training_steps
 
     def pprint(score, epoch, steps):
         print(f"\nEpoch {epoch} - Score = {score}\n")
 
-    evaluator = CEBinaryClassificationEvaluator(sentence_pairs=val_samples, labels=val_labels)
-    ######## Train the model
+    evaluator = CEBinaryClassificationEvaluator(sentence_pairs=val_pairs, labels=val_labels)
+
     model.fit(train_dataloader=train_loader,
               evaluator=evaluator,
               epochs=params[TRAIN_EPOCHS],
@@ -133,20 +118,12 @@ def train(params):
 
 def e2e_AV_test(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
     seed_for_reproducability()
-
     params[CHECKPOINT] = "./output/checkpoints/"
 
     model = CrossEncoder(params[CHECKPOINT], device=device, max_length=params[MAX_SOURCE_TEXT_LENGTH])
-
-    test_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_pairs_{params[NO_AUTHORS]}_authors.csv")
-    s1s = test_pairs_df["s1"].tolist()
-    s2s = test_pairs_df["s2"].tolist()
-    test_pairs = [list(pair) for pair in zip(s1s, s2s)]
-    test_labels = test_pairs_df["label"].tolist()
-
-    test_AV(model, 0.5, test_pairs, test_labels)
+    test_pairs, test_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
+    test_AV(model, params[THRESHOLD], test_pairs, test_labels)
 
 
 def e2e_classification_test(params):
@@ -155,24 +132,21 @@ def e2e_classification_test(params):
     seed_for_reproducability()
 
     bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
-    cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device, max_length=params[MAX_SOURCE_TEXT_LENGTH])
+    cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
+                                 max_length=params[MAX_SOURCE_TEXT_LENGTH])
 
-    train_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/train_{params[NO_AUTHORS]}_authors.csv")
-    train_samples = train_df["content"].tolist()
-    train_labels = train_df["Target"].tolist()
-
-    test_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_{params[NO_AUTHORS]}_authors.csv")
-    test_samples = test_df["content"].tolist()
-    test_labels = test_df["Target"].tolist()
+    train_samples, train_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
+    test_samples, test_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
 
     test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
                                   train_samples=train_samples,
                                   train_labels=train_labels,
                                   test_samples=test_samples, test_labels=test_labels, top_k=10, batch_size=32,
-                                  threshold=0.5)
+                                  threshold=params[THRESHOLD])
 
 
 if __name__ == "__main__":
-    params = model_paramsAV1
-    params[NO_AUTHORS] = 2
-    e2e_classification_test(params)
+    params = cross_encoder_params_10
+    train(params)
+    #e2e_AV_test(params)
+    #e2e_classification_test(params)

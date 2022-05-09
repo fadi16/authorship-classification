@@ -8,7 +8,6 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from transformers import DataCollator
-from constants import *
 from sklearn.model_selection import train_test_split
 
 from utils import seed_for_reproducability
@@ -248,7 +247,10 @@ class CollatorAV:
         }
 
 
-def balance(texts, labels):
+def balance_fn(texts, labels):
+    texts = list(texts)
+    labels = list(labels)
+
     authors_indicies = sorted(set(labels))
     no_authors = len(authors_indicies)
 
@@ -304,7 +306,7 @@ def create_pos_neg_pairs(df, balance=False):
     labels = df["Target"].tolist()
 
     if balance:
-        texts, labels = balance(texts, labels)
+        texts, labels = balance_fn(texts, labels)
 
     pos_pairs = []
     neg_pairs = []
@@ -353,6 +355,25 @@ def map_chunks(texts1, texts2):
         zip(texts1, texts2[:len(texts1)]))
 
 
+def get_pairs_and_labels(no_authors, split, balanced=False):
+    pairs_df = pd.read_csv(
+        f"./data/blog/{no_authors}_authors/{split}_pairs_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
+    s1s = pairs_df["s1"].tolist()
+    s2s = pairs_df["s2"].tolist()
+    pairs = [list(pair) for pair in zip(s1s, s2s)]
+    labels = pairs_df["label"].tolist()
+
+    return pairs, labels
+
+
+def get_samples_and_labels(no_authors, split, balanced=False):
+    df = pd.read_csv(
+        f"./data/blog/{no_authors}_authors/{split}_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
+    samples = df["content"].tolist()
+    labels = df["Target"].tolist()
+    return samples, labels
+
+
 # this creates all the datasets needed - more details in READ.me
 def create_all_datasets(no_authors, balance=False):
     seed_for_reproducability()
@@ -362,13 +383,22 @@ def create_all_datasets(no_authors, balance=False):
                                                            val_size=0.1,
                                                            test_size=0.2)
 
-    train_df.to_csv(f"train_{no_authors}_authors.csv")
+    if balance:
+        train_samples = train_df["content"]
+        train_labels = train_df["Target"]
+        train_samples, train_labels = balance_fn(train_samples, train_labels)
+        train_df = pd.DataFrame({
+            "content": train_samples,
+            "Target": train_labels
+        })
+
+    train_df.to_csv(f"train_{no_authors}_authors{'_balanced' if balance else ''}.csv")
     val_df.to_csv(f"val_{no_authors}_authors.csv")
     test_df.to_csv(f"test_{no_authors}_authors.csv")
 
     #########
     # contrastive train dataset
-    train_pos, train_neg = create_pos_neg_pairs(train_df)
+    train_pos, train_neg = create_pos_neg_pairs(train_df, balance=balance)
 
     train_samples = [[train_pos[i][0], train_pos[i][1]] for i in range(len(train_pos))]
     train_labels = [1 for _ in range(len(train_pos))]
@@ -383,7 +413,7 @@ def create_all_datasets(no_authors, balance=False):
         "s2": p2_samples_train,
         "label": train_labels
     })
-    train_pairs_df.to_csv(f"train_pairs_{no_authors}_authors.csv")
+    train_pairs_df.to_csv(f"train_pairs_{no_authors}_authors{'_balanced' if balance else ''}.csv")
 
     #############
     # contrastive validation dataset
@@ -426,4 +456,4 @@ def create_all_datasets(no_authors, balance=False):
 
 
 if __name__ == "__main__":
-    create_all_datasets(no_authors=10)
+    create_all_datasets(no_authors=75, balance=True)
