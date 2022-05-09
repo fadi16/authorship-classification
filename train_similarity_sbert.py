@@ -11,7 +11,8 @@ from model_params import *
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, SentencesDataset, LoggingHandler, losses, InputExample, models
 from sentence_transformers.losses.ContrastiveLoss import SiameseDistanceMetric
-from sentence_transformers.evaluation import SentenceEvaluator
+from sentence_transformers.evaluation import SentenceEvaluator, BinaryClassificationEvaluator
+
 from sklearn.metrics.pairwise import cosine_distances
 from sklearn import metrics
 import tqdm.std
@@ -112,7 +113,8 @@ def save_embeddings(model, train_samples, val_samples, test_samples, path):
     f.close()
 
 
-def test_classification(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k, model=None):
+def test_classification(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k,
+                        model=None):
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT])
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
@@ -197,7 +199,8 @@ class ClassificationEvaluator(SentenceEvaluator):
         self.top_k = top_k
         self.no_authors = len(set(val_labels))
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False, save=False) -> float:
+    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False,
+                 save=False) -> float:
         print("** Validation **")
         print("obtaining training samples embeddings")
         train_embeddings = model.encode(self.train_samples,
@@ -253,7 +256,7 @@ class ClassificationEvaluator(SentenceEvaluator):
 
 
 def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
-                                    train_pair_labels):
+                                    train_pair_labels, val_pair_samples, val_pair_labels):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     ######## defining the model
@@ -271,8 +274,11 @@ def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_sam
 
     train_loader = DataLoader(train_dataset, shuffle=True, batch_size=params[TRAIN_BATCH_SIZE])
 
-    evaluator = ClassificationEvaluator(train_samples, train_labels, val_samples, val_labels, params[VALID_BATCH_SIZE],
-                                        [10], 10)
+    s1s_val = [s1 for s1, _ in val_pair_samples]
+    s2s_val = [s2 for _, s2 in val_pair_samples]
+
+    evaluator = BinaryClassificationEvaluator(sentences1=s1s_val, sentences2=s2s_val, labels=val_pair_labels,
+                                              batch_size=32, show_progress_bar=True)
     if params[LOSS] == CONTRASTIVE:
         # Expects as input two texts and a label of either 0 or 1. If the label == 1, then the distance between the two
         # embeddings is reduced. If the label == 0, then the distance between the embeddings is increased.
@@ -304,7 +310,7 @@ def train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_sam
     return model
 
 
-def e2e_experiment(params):
+def e2e_experiment(params, train, test):
     seed_for_reproducability()
 
     train_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/train_{params[NO_AUTHORS]}_authors.csv")
@@ -327,12 +333,11 @@ def e2e_experiment(params):
     train_pairs = [list(pair) for pair in zip(s1s, s2s)]
     train_labels_pairs = train_pairs_df["label"].tolist()
 
-
-    model = train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_samples, val_labels, train_pairs,
-                                    train_labels_pairs)
-
-    # the checkpoint will be here after training
-    params[CHECKPOINT] = "./output/checkpoints"
+    val_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/val_pairs_{params[NO_AUTHORS]}_authors.csv")
+    s1s = val_pairs_df["s1"].tolist()
+    s2s = val_pairs_df["s2"].tolist()
+    val_pairs = [list(pair) for pair in zip(s1s, s2s)]
+    val_labels_pairs = val_pairs_df["label"].tolist()
 
     test_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_pairs_{params[NO_AUTHORS]}_authors.csv")
     s1s = test_pairs_df["s1"].tolist()
@@ -340,23 +345,32 @@ def e2e_experiment(params):
     test_pairs = [list(pair) for pair in zip(s1s, s2s)]
     test_labels_pairs = test_pairs_df["label"].tolist()
 
-    best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=False, model=model)
+    if train:
+        model = train_AV_with_sbert_contrastive(params, train_samples, train_labels, val_samples, val_labels,
+                                                train_pairs,
+                                                train_labels_pairs, val_pairs, val_labels_pairs)
+    if test:
+        # the checkpoint will be here after training
+        params[CHECKPOINT] = "./output/checkpoints"
 
-    acc_av = test_AV(params, 0.5, test_pairs, test_labels_pairs, batch_size=32, model=model)
+        best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=False,
+                        model=model)
 
-    acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                 batch_size=32, top_k=10, model=None)
-    acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                  batch_size=32, top_k=best_k, model=None)
-    save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
+        acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_labels_pairs, batch_size=32, model=model)
 
-    stats = {
-        "AV Accuracy": acc_av,
-        "Classification Accuracy k = 10": acc_classification_k10,
-        f"Classification Accuracy k = {best_k}": acc_classification_topk,
+        acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                     batch_size=32, top_k=10,  model=None)
+        acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                      batch_size=32, top_k=best_k, model=None)
+        save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
 
-    }
-    print(stats)
+        stats = {
+            "AV Accuracy": acc_av,
+            "Classification Accuracy k = 10": acc_classification_k10,
+            f"Classification Accuracy k = {best_k}": acc_classification_topk,
+
+        }
+        print(stats)
 
     # look at
     # saved embeddings
@@ -368,4 +382,4 @@ def e2e_experiment(params):
 if __name__ == "__main__":
     seed_for_reproducability()
     params = bi_encoder_params_online_contrastive
-    e2e_experiment(params)
+    e2e_experiment(params, train=True, test=False)
