@@ -92,7 +92,29 @@ model_paramsAV1 = {
 LOSS = "LOSS"
 CONTRASTIVE = "CONTRASTIVE"
 ONLINE_CONTRASTIVE = "ONLINE_CONTRASTIVE"
+THRESHOLD = "THRESHOLD"
+BATCH_HARD_TRIPLET = "BATCH_HARD_TRIPLET"
+BALANCE = "BALANCE"
 
+bi_encoder_params_contrastive= {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 32,
+    VALID_BATCH_SIZE: 32,
+    TRAIN_EPOCHS: 5,
+    LEARNING_RATE: 4e-5,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 10,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    POOLING: MEAN,
+    POSITIVE_LABEL: 1,
+    NEGATIVE_LABEL: 0,
+    LOSS: CONTRASTIVE,
+    THRESHOLD: 0.5,
+    BALANCE: False
+}
 
 bi_encoder_params_online_contrastive= {
     CHECKPOINT: "bert-base-cased",
@@ -109,6 +131,39 @@ bi_encoder_params_online_contrastive= {
     POOLING: MEAN,
     POSITIVE_LABEL: 1,
     NEGATIVE_LABEL: 0,
-    LOSS: ONLINE_CONTRASTIVE
+    LOSS: ONLINE_CONTRASTIVE,
+    THRESHOLD: 0.7716,
+    BALANCE: False
 
+}
+
+bi_encoder_params_batch_hard_triplet_10= {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 16,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 7,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 10,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    LOSS: BATCH_HARD_TRIPLET,
+    THRESHOLD: 0.5, # todo need to find the right one
+    BALANCE: True
+}
+
+cross_encoder_params_10= {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 16,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 7,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 10,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    THRESHOLD: 0.5, # todo need to find the right one
+    BALANCE: True
 }
