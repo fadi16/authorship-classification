@@ -89,3 +89,26 @@ model_paramsAV1 = {
     NEGATIVE_LABEL: -1
 
 }
+LOSS = "LOSS"
+CONTRASTIVE = "CONTRASTIVE"
+ONLINE_CONTRASTIVE = "ONLINE_CONTRASTIVE"
+
+
+bi_encoder_params_online_contrastive= {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 32,
+    VALID_BATCH_SIZE: 32,
+    TRAIN_EPOCHS: 5,
+    LEARNING_RATE: 4e-5,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 10,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    POOLING: MEAN,
+    POSITIVE_LABEL: 1,
+    NEGATIVE_LABEL: 0,
+    LOSS: ONLINE_CONTRASTIVE
+
+}

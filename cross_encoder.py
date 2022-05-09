@@ -81,8 +81,18 @@ def test_AV(model, threshold, test_pairs, test_labels):
     print(f"Test Accuracy = {accuracy}")
 
 
-def classify_with_embeddings(model, threshold, train_embeddings, train_samples, train_labels, test_embeddings,
-                             test_samples, test_labels, top_k):
+def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_samples, train_labels,
+                                  test_samples, test_labels, top_k, batch_size, threshold=0.5):
+    train_embeddings = bi_encoder_model.encode(train_samples,
+                                               convert_to_numpy=True,
+                                               batch_size=batch_size,
+                                               show_progress_bar=True)
+
+    test_embeddings = bi_encoder_model.encode(test_samples,
+                                              convert_to_numpy=True,
+                                              batch_size=batch_size,
+                                              show_progress_bar=True)
+
     cos_dists = []
     for i in range(len(test_embeddings)):
         val_embedding = [test_embeddings[i]]
@@ -93,10 +103,13 @@ def classify_with_embeddings(model, threshold, train_embeddings, train_samples, 
     for i in range(len(test_embeddings)):
         candidate_labels = []
         cos_dist = cos_dists[i]
-        sorted_indicies = np.argsort(cos_dist)[0][:top_k]
-        for topk_index in sorted_indicies:
-            prediction = model.predict([[test_samples[i], train_samples[topk_index]]], convert_to_numpy=True,
-                                       show_progress_bar=True)
+        top_k_indicies = np.argsort(cos_dist)[0][:top_k]
+
+        predictions = cross_encoder_model.predict(
+            [[test_samples[i], train_samples[topk_index]] for topk_index in top_k_indicies],
+            convert_to_numpy=True,
+            show_progress_bar=True)
+        for topk_index, prediction in zip(top_k_indicies, predictions):
             if prediction > threshold:
                 candidate_label = train_labels[topk_index]
                 candidate_labels.append(candidate_label)
@@ -118,7 +131,7 @@ def train(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     ######## defining the model
-    model = CrossEncoder(params[CHECKPOINT], device=device, num_labels=1)
+    model = CrossEncoder(params[CHECKPOINT], device=device, num_labels=1, max_length=params[MAX_SOURCE_TEXT_LENGTH])
     #########################
     # train, val and test splits
     train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS],
@@ -166,28 +179,48 @@ def train(params):
     return model
 
 
-if __name__ == "__main__":
+def e2e_AV_test(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     seed_for_reproducability()
+
+    params[CHECKPOINT] = "./output/checkpoints/"
+
+    model = CrossEncoder(params[CHECKPOINT], device=device, max_length=params[MAX_SOURCE_TEXT_LENGTH])
+
+    test_pairs_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_pairs_{params[NO_AUTHORS]}_authors.csv")
+    s1s = test_pairs_df["s1"].tolist()
+    s2s = test_pairs_df["s2"].tolist()
+    test_pairs = [list(pair) for pair in zip(s1s, s2s)]
+    test_labels = test_pairs_df["label"].tolist()
+
+    test_AV(model, 0.5, test_pairs, test_labels)
+
+
+def e2e_classification_test(params):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    seed_for_reproducability()
+
+    bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
+    cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device, max_length=params[MAX_SOURCE_TEXT_LENGTH])
+
+    train_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/train_{params[NO_AUTHORS]}_authors.csv")
+    train_samples = train_df["content"].tolist()
+    train_labels = train_df["Target"].tolist()
+
+    test_df = pd.read_csv(f"./data/blog/{params[NO_AUTHORS]}_authors/test_{params[NO_AUTHORS]}_authors.csv")
+    test_samples = test_df["content"].tolist()
+    test_labels = test_df["Target"].tolist()
+
+    test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
+                                  train_samples=train_samples,
+                                  train_labels=train_labels,
+                                  test_samples=test_samples, test_labels=test_labels, top_k=10, batch_size=32,
+                                  threshold=0.5)
+
+
+if __name__ == "__main__":
     params = model_paramsAV1
-
-    params[TRAIN_BATCH_SIZE] = 16
-    params[VALID_BATCH_SIZE] = 16
-
-    model = train(params)
-
-    # train, val and test splits
-    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS],
-                                                           val_size=0.1,
-                                                           test_size=0.2,
-                                                           seed=params[SEED])
-
-    test_pos, test_neg = create_pos_neg_pairs(test_df)
-
-    test_samples = [[test_pos[i][0], test_pos[i][1]] for i in range(len(test_pos))]
-    test_labels = [1 for _ in range(len(test_pos))]
-    test_samples.extend([[test_neg[i][0], test_neg[i][1]] for i in range(len(test_neg))])
-    test_labels.extend([0 for _ in range(len(test_neg))])
-
-    test_AV(model=model, threshold=0.5, test_pairs=test_samples, test_labels=test_labels)
+    params[NO_AUTHORS] = 2
+    e2e_classification_test(params)

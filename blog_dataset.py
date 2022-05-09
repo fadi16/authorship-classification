@@ -11,117 +11,11 @@ from transformers import DataCollator
 from constants import *
 from sklearn.model_selection import train_test_split
 
-
-def get_AV_dataset_from_AA_dataset(df, m=1, path=None):
-    """
-
-    :param df:
-    :param m: each positive sample will have no_authors / 2 * m many negative samples
-    :param path:
-    :return:
-    """
-    authors_indicies = set(df["Target"].tolist())
-
-    # list of contents for each author, for author i their content is at the ith index
-    authors_contents_list = []
-    for i in authors_indicies:
-        authors_contents_list.append(df.loc[df["Target"] == i]["content"].tolist())
-
-    # positive matches for each author - samples coming from the same author
-    # overall we have N * L positive samples, N is number of authors, L is no texts
-
-    # todo do something here if u want to increase the number of positive samples
-    positive_samples = []
-    for author_content in authors_contents_list:
-        for i in range(len(author_content)):
-            if i + 1 < len(author_content):
-                positive_samples.append((author_content[i], author_content[i + 1]))
-
-    # negative matches, e.g. content for author 1 and content for author 2
-    # overall we have L * N * (N + 1) * m / 2  negative samples
-    negative_samples = []
-    for i in range(len(authors_contents_list)):
-        for j in range(len(authors_contents_list[i])):
-            for k in range(i + 1, len(authors_contents_list)):
-                if j + m - 1 < len(authors_contents_list[k]):
-                    for l in range(j, j + m):
-                        negative_samples.append((authors_contents_list[i][j], authors_contents_list[k][l]))
-                else:
-                    # choose m samples at random
-                    random_indicies = np.random.random_integers(low=0, high=len(authors_contents_list[k]) - 1, size=m)
-                    for ri in random_indicies:
-                        negative_samples.append((authors_contents_list[i][j], authors_contents_list[k][ri]))
-
-    if path:
-        f = open(path, "wb")
-        f.dump({
-            "positive": positive_samples,
-            "negative": negative_samples
-        })
-
-    return positive_samples, negative_samples
+from utils import seed_for_reproducability
 
 
-def get_AV_dataset_from_AA_dataset_contrastive(df, no_positive_samples, pos_to_neg_ratio):
-    pass
-    # authors_indicies = set(df["Target"].tolist())
-    #
-    # # list of contents for each author, for author i their content is at the ith index
-    # authors_contents_list = []
-    # for i in authors_indicies:
-    #     authors_contents_list.append(df.loc[df["Target"] == i]["content"].tolist())
-    #
-    # # positive matches for each author - samples coming from the same author
-    # # overall we have N * L positive samples, N is number of authors, L is no texts
-    #
-    # # todo do something here if u want to increase the number of positive samples
-    # positive_samples = []
-    # for author_content in authors_contents_list:
-    #     for i in range(len(author_content)):
-    #         if i + 1 < len(author_content):
-    #             positive_samples.append((author_content[i], author_content[i + 1]))
-    #
-    # # negative matches, e.g. content for author 1 and content for author 2
-    # # overall we have L * N * (N + 1) * m / 2  negative samples
-    # negative_samples = []
-    # for i in range(len(authors_contents_list)):
-    #     for j in range(len(authors_contents_list[i])):
-    #         for k in range(i + 1, len(authors_contents_list)):
-    #             if j + m - 1 < len(authors_contents_list[k]):
-    #                 for l in range(j, j + m):
-    #                     negative_samples.append((authors_contents_list[i][j], authors_contents_list[k][l]))
-    #             else:
-    #                 # choose m samples at random
-    #                 random_indicies = np.random.random_integers(low=0, high=len(authors_contents_list[k]) - 1, size=m)
-    #                 for ri in random_indicies:
-    #                     negative_samples.append((authors_contents_list[i][j], authors_contents_list[k][ri]))
-    #
-    # if path:
-    #     f = open(path, "wb")
-    #     f.dump({
-    #         "positive": positive_samples,
-    #         "negative": negative_samples
-    #     })
-    #
-    # return positive_samples, negative_samples
-
-
-def get_AV_dataset_from_AA_dataset_triplets(df, m=1, path=None):
-    pass
-
-
-def get_datasets_for_n_authors_AV(n, val_size, test_size, m, seed=42):
-    train_df, val_df, test_df = get_datasets_for_n_authors_AA(n, val_size, test_size, seed)
-
-    train_pos, train_neg = get_AV_dataset_from_AA_dataset(train_df, m)
-    val_pos, val_neg = get_AV_dataset_from_AA_dataset(val_df, m)
-    test_pos, test_neg = get_AV_dataset_from_AA_dataset(test_df, m)
-
-    return train_pos, train_neg, val_pos, val_neg, test_pos, test_neg
-
-
-def get_datasets_for_n_authors_AA(n, val_size, test_size, seed=42, path="./data/blog/"):
-    # "n" authors with the highest number of samples
+# create train, val and test datasets for the "n" authors with the highest number of texts
+def get_datasets_for_n_authors(n, val_size, test_size, seed=42, path="./data/blog/"):
     df = pd.read_csv("./data/blog/blogtext.csv")
     df.columns = ["From", "Gender", "Age", "Topic", "Sign", "Date", "content"]
     df = df[df['content'].apply(lambda x: len(x.split())) > 0]
@@ -172,6 +66,8 @@ def get_datasets_for_n_authors_AA(n, val_size, test_size, seed=42, path="./data/
     return train_df, val_df, test_df
 
 
+# Used to train a Siamese Model based on BERT we created without using sbert (from sentence-transformers)
+# this model and this data set were later abandoned because the model was super slow to train compared to the sbert one
 class AuthorsDatasetAV(Dataset):
     # set pad_to_max_length to false when we want to do dynamic padding
     def __init__(self, positive_samples, negative_samples, pos_label, neg_label, tokenizer, max_source_len,
@@ -225,6 +121,9 @@ class AuthorsDatasetAV(Dataset):
         }
 
 
+# This is used to train/test the classification-based model It encodes texts and passes it along with a label (for
+# the author of the text) and an attention mask We only consider the first 128 bert tokens, following Fabien et al. (
+# 2020) in BertAA (https://aclanthology.org/2020.icon-main.16.pdf)
 class AuthorsDatasetAA(Dataset):
     # set pad_to_max_length to false when we want to do dynamic padding
     def __init__(self, df, source_tag, target_tag, tokenizer, max_source_len, pad_to_max_length=False):
@@ -283,7 +182,8 @@ class AuthorsDatasetAA(Dataset):
         }
 
 
-# this allows us to do dynamic padding for batches. It significantly speeds up training time
+# this allows us to do dynamic padding for batches.
+# It significantly speeds up training time
 class CollatorAA:
     def __init__(self, pad_token_id):
         self.pad_token_id = pad_token_id
@@ -309,6 +209,8 @@ class CollatorAA:
         }
 
 
+# this allows us to do dynamic padding for batches.
+# It significantly speeds up training time
 class CollatorAV:
     def __init__(self, pad_token_id):
         self.pad_token_id = pad_token_id
@@ -346,12 +248,153 @@ class CollatorAV:
         }
 
 
-if __name__ == "__main__":
-    # train_df, test_df, val_df = get_datasets_for_n_authors_AA(n=5, val_size=0.1, test_size=0.2)
-    df = pd.read_csv("test.csv")
-    pos, neg = get_AV_dataset_from_AA_dataset(df, m=2)
+# split dataset into positive pairs (coming from same author) and negative pairs (coming from different authors)
+# the approach is similar to that described in page 9 of this paper https://arxiv.org/pdf/1912.10616.pdf
+# We do the following (for each author):
+# - split the texts produced by each author into 4 equal sized chunks
+# - merge the first two chunks to create positive/same-author pairs for the given author
+# - split the third chunk into N - 1 pieces, where N is the total number of authors in the dataset
+# - merge the pieces from the third chunk with random texts from the other (N-1) authors' forth chunks
+# This results in an equal number of positive and negative pairs in these datasets.
+def create_pos_neg_pairs(df, balance=False):
+    pos_pairs = []
+    neg_pairs = []
 
-    print("pos")
-    print(len(pos))
-    print("neg")
-    print(len(neg))
+    authors_indicies = sorted(set(df["Target"].tolist()))
+    no_authors = len(authors_indicies)
+
+    # fine the average number of articles by each author
+    no_articles_by_each_author = [authors_indicies.count(i) for i in range(len(no_authors))]
+    mean = np.mean(no_articles_by_each_author)
+    std = np.std(no_articles_by_each_author)
+    length_to_balance_for = mean + std
+
+    # list of contents for each author, for author i their content is at the ith index
+    authors_chunks = []
+    for i in authors_indicies:
+        current_author_texts = [text.strip() for text in df.loc[df["Target"] == i]["content"].tolist()]
+        random.shuffle(current_author_texts)
+
+        if balance:
+            if len(current_author_texts) > length_to_balance_for:
+                current_author_texts = current_author_texts[:length_to_balance_for]
+            else:
+                no_samples_to_add = length_to_balance_for - len(current_author_texts)
+                # randomly oversample
+                random_indicies = np.random.random_integers(low=0, high=len(current_author_texts)- 1, size=no_samples_to_add)
+                for random_index in random_indicies:
+                    current_author_texts.append(current_author_texts[random_index])
+
+        # divide authors texts into 4 chuncks
+        current_author_chunks = [arr.tolist() for arr in np.array_split(current_author_texts, 4)]
+        authors_chunks.append(current_author_chunks)
+
+    for i in authors_indicies:
+        chunks_for_current_author = authors_chunks[i]
+        first_chunk = chunks_for_current_author[0]
+        second_chunk = chunks_for_current_author[1]
+
+        pos_pairs_for_current_author = map_chunks(first_chunk, second_chunk)
+        pos_pairs.extend(pos_pairs_for_current_author)
+
+        third_chunk = chunks_for_current_author[2]
+        third_chunk_splitted = [arr.tolist() for arr in
+                                np.array_split(third_chunk, min(no_authors - 1, len(third_chunk)))]
+        random.shuffle(third_chunk_splitted)
+
+        other_author_indicies = [k for k in authors_indicies if k != i]
+        random.shuffle(other_author_indicies)
+
+        for j in range(min(len(third_chunk_splitted), no_authors - 1)):
+            other_author_forth_chunk = authors_chunks[other_author_indicies[j]][3]
+            neg_pairs_for_current_chunk = map_chunks(third_chunk_splitted[j], other_author_forth_chunk)
+            neg_pairs.extend(neg_pairs_for_current_chunk)
+
+    return pos_pairs, neg_pairs
+
+
+# this merges chunks of texts together
+def map_chunks(texts1, texts2):
+    # map texts between two authors to create negative pairs
+    # the number of texts might not be similar
+    random.shuffle(texts1)
+    random.shuffle(texts2)
+
+    return list(zip(texts1[:len(texts2)], texts2)) if len(texts2) < len(texts1) else list(
+        zip(texts1, texts2[:len(texts1)]))
+
+
+# this creates all the datasets needed - more details in READ.me
+def create_all_datasets(no_authors):
+    seed_for_reproducability()
+
+    # normal AA dataset
+    train_df, val_df, test_df = get_datasets_for_n_authors(n=no_authors,
+                                                           val_size=0.1,
+                                                           test_size=0.2)
+
+    train_df.to_csv(f"train_{no_authors}_authors.csv")
+    val_df.to_csv(f"val_{no_authors}_authors.csv")
+    test_df.to_csv(f"test_{no_authors}_authors.csv")
+
+    #########
+    # contrastive train dataset
+    train_pos, train_neg = create_pos_neg_pairs(train_df)
+
+    train_samples = [[train_pos[i][0], train_pos[i][1]] for i in range(len(train_pos))]
+    train_labels = [1 for _ in range(len(train_pos))]
+    train_samples.extend([[train_neg[i][0], train_neg[i][1]] for i in range(len(train_neg))])
+    train_labels.extend([0 for _ in range(len(train_neg))])
+
+    p1_samples_train = [train_samples[i][0] for i in range(len(train_samples))]
+    p2_samples_train = [train_samples[i][1] for i in range(len(train_samples))]
+
+    train_pairs_df = pd.DataFrame({
+        "s1": p1_samples_train,
+        "s2": p2_samples_train,
+        "label": train_labels
+    })
+    train_pairs_df.to_csv(f"train_pairs_{no_authors}_authors.csv")
+
+    #############
+    # contrastive validation dataset
+    val_pos, val_neg = create_pos_neg_pairs(val_df)
+
+    val_samples = [[val_pos[i][0], val_pos[i][1]] for i in range(len(val_pos))]
+    val_labels = [1 for _ in range(len(val_pos))]
+    val_samples.extend([[val_neg[i][0], val_neg[i][1]] for i in range(len(val_neg))])
+    val_labels.extend([0 for _ in range(len(val_neg))])
+
+    p1_samples_val = [val_samples[i][0] for i in range(len(val_samples))]
+    p2_samples_val = [val_samples[i][1] for i in range(len(val_samples))]
+
+    val_pairs_df = pd.DataFrame({
+        "s1": p1_samples_val,
+        "s2": p2_samples_val,
+        "label": val_labels
+    })
+    val_pairs_df.to_csv(f"val_pairs_{no_authors}_authors.csv")
+
+    ###########
+    # contrastive test dataset
+
+    test_pos, test_neg = create_pos_neg_pairs(test_df)
+
+    test_samples = [[test_pos[i][0], test_pos[i][1]] for i in range(len(test_pos))]
+    test_labels = [1 for _ in range(len(test_pos))]
+    test_samples.extend([[test_neg[i][0], test_neg[i][1]] for i in range(len(test_neg))])
+    test_labels.extend([0 for _ in range(len(test_neg))])
+
+    p1_samples_test = [test_samples[i][0] for i in range(len(test_samples))]
+    p2_samples_test = [test_samples[i][1] for i in range(len(test_samples))]
+
+    test_pairs_df = pd.DataFrame({
+        "s1": p1_samples_test,
+        "s2": p2_samples_test,
+        "label": test_labels
+    })
+    test_pairs_df.to_csv(f"test_pairs_{no_authors}_authors.csv")
+
+
+if __name__ == "__main__":
+    create_all_datasets(no_authors=50)
