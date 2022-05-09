@@ -61,9 +61,28 @@ model_params_classification_10 = {
     USE_CLASS_WEIGHTED_LOSS: True,
     NO_AUTHORS: 10,
     SEED: 42,
-    OUTPUT_DIR: "./output"
-
+    OUTPUT_DIR: "./output",
+    BETA_FOR_WEIGHTED_CLASS_LOSS: 0.9999,
 }
+
+model_params_classification_50 = {
+    MODEL : AA,
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 8,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 7,
+    ADAM_EPSILON: 1e-8,
+    LEARNING_RATE: 4e-5,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    USE_CLASS_WEIGHTED_LOSS: True,
+    NO_AUTHORS: 50,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    BETA_FOR_WEIGHTED_CLASS_LOSS: 0.9999,
+}
+
 
 
 model_paramsAV1 = {
@@ -95,6 +114,7 @@ ONLINE_CONTRASTIVE = "ONLINE_CONTRASTIVE"
 THRESHOLD = "THRESHOLD"
 BATCH_HARD_TRIPLET = "BATCH_HARD_TRIPLET"
 BALANCE = "BALANCE"
+BEST_K = "BEST_K"
 
 bi_encoder_params_contrastive= {
     CHECKPOINT: "bert-base-cased",
@@ -146,8 +166,26 @@ bi_encoder_params_batch_hard_triplet_10= {
     SEED: 42,
     OUTPUT_DIR: "./output",
     LOSS: BATCH_HARD_TRIPLET,
+    THRESHOLD: 0.1994,
+    BALANCE: True,
+    BEST_K: 161
+}
+
+bi_encoder_params_batch_hard_triplet_50 = {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 16,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 7,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 50,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    LOSS: BATCH_HARD_TRIPLET,
     THRESHOLD: 0.5, # todo need to find the right one
-    BALANCE: True
+    BALANCE: True,
+    BEST_K: 10 # todo needs fine tuning
 }
 
 cross_encoder_params_10= {
@@ -159,6 +197,21 @@ cross_encoder_params_10= {
     USE_SCHEDULER: True,
     WARMUP_RATIO: 0.06,
     NO_AUTHORS: 10,
+    SEED: 42,
+    OUTPUT_DIR: "./output",
+    THRESHOLD: 0.5, # todo need to find the right one
+    BALANCE: True
+}
+
+cross_encoder_params_50= {
+    CHECKPOINT: "bert-base-cased",
+    TRAIN_BATCH_SIZE: 8,
+    VALID_BATCH_SIZE: 16,
+    TRAIN_EPOCHS: 7,
+    MAX_SOURCE_TEXT_LENGTH: 128,
+    USE_SCHEDULER: True,
+    WARMUP_RATIO: 0.06,
+    NO_AUTHORS: 50,
     SEED: 42,
     OUTPUT_DIR: "./output",
     THRESHOLD: 0.5, # todo need to find the right one

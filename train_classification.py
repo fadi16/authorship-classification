@@ -10,12 +10,11 @@ from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors, get_datasets_for_n_authors_AV, \
-    AuthorsDatasetAV, CollatorAV
+from blog_dataset import AuthorsDatasetAA, CollatorAA
 from model_params import *
 from utils import *
 from model import *
-
+from tqdm import tqdm
 
 def train_loop_AA(params):
     # for reproducibility
@@ -117,24 +116,27 @@ def train_step_AA(epoch, model, optimizer, scheduler, training_loader, class_wei
         weight=class_weights.to(device, dtype=float) if class_weights is not None else None)
 
     train_losses = []
-    for _, data in enumerate(training_loader, 0):
-        ids = data['input_ids'].to(device, dtype=torch.long)
-        mask = data['attention_mask'].to(device, dtype=torch.long)
-        labels = data['labels'].to(device, dtype=torch.float)
+    with tqdm(total=len(training_loader)) as pbar:
+        for _, data in enumerate(training_loader, 0):
+            ids = data['input_ids'].to(device, dtype=torch.long)
+            mask = data['attention_mask'].to(device, dtype=torch.long)
+            labels = data['labels'].to(device, dtype=torch.float)
 
-        outputs = model(ids, mask)
-        output_logits = outputs.logits
-        loss = loss_fn(output_logits, labels)
+            outputs = model(ids, mask)
+            output_logits = outputs.logits
+            loss = loss_fn(output_logits, labels)
 
-        train_losses.append(loss.item())
-        # order from https://huggingface.co/docs/transformers/training
-        loss.backward()
-        optimizer.step()
-        if scheduler:
-            current_lr = scheduler.get_last_lr()[0]
-            tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
-            scheduler.step()
-        optimizer.zero_grad()
+            train_losses.append(loss.item())
+            # order from https://huggingface.co/docs/transformers/training
+            loss.backward()
+            optimizer.step()
+            if scheduler:
+                current_lr = scheduler.get_last_lr()[0]
+                tb.add_scalar("lr", current_lr, epoch * len(training_loader) + _)
+                scheduler.step()
+            optimizer.zero_grad()
+
+            pbar.update(1)
 
     average_train_loss = np.mean(train_losses)
     tb.add_scalar("train_loss", average_train_loss, epoch)
@@ -148,18 +150,21 @@ def val_step_AA(epoch, model, val_loader, device, tb):
     val_losses = []
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    with torch.no_grad():
-        for _, data in enumerate(val_loader, 0):
-            ids = data['input_ids'].to(device, dtype=torch.long)
-            mask = data['attention_mask'].to(device, dtype=torch.long)
-            labels = data['labels'].to(device, dtype=torch.float)
-            outputs = model(ids, mask)
-            output_logits = outputs.logits
-            loss = loss_fn(output_logits, labels)
-            val_losses.append(loss.item())
+    with tqdm(total=len(val_loader)) as pbar:
+        with torch.no_grad():
+            for _, data in enumerate(val_loader, 0):
+                ids = data['input_ids'].to(device, dtype=torch.long)
+                mask = data['attention_mask'].to(device, dtype=torch.long)
+                labels = data['labels'].to(device, dtype=torch.float)
+                outputs = model(ids, mask)
+                output_logits = outputs.logits
+                loss = loss_fn(output_logits, labels)
+                val_losses.append(loss.item())
 
-            all_labels.extend(labels.cpu().detach().numpy().tolist())
-            all_outputs_with_softmax.extend(torch.softmax(output_logits, dim=1).cpu().detach().numpy().tolist())
+                all_labels.extend(labels.cpu().detach().numpy().tolist())
+                all_outputs_with_softmax.extend(torch.softmax(output_logits, dim=1).cpu().detach().numpy().tolist())
+
+                pbar.update(1)
 
     log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(
         all_outputs_with_softmax, all_labels)
