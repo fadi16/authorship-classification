@@ -47,19 +47,19 @@ model_params_spooky_authors = {
     OUTPUT_DIR: "./output"
 }
 
-model_params1 = {
+model_params_classification_10 = {
     MODEL : AA,
     CHECKPOINT: "bert-base-cased",
     TRAIN_BATCH_SIZE: 8,
     VALID_BATCH_SIZE: 16,
-    TRAIN_EPOCHS: 10,
+    TRAIN_EPOCHS: 7,
     ADAM_EPSILON: 1e-8,
     LEARNING_RATE: 4e-5,
     MAX_SOURCE_TEXT_LENGTH: 128,
     USE_SCHEDULER: True,
     WARMUP_RATIO: 0.06,
-    USE_CLASS_WEIGHTED_LOSS: False,
-    NO_AUTHORS: 5,
+    USE_CLASS_WEIGHTED_LOSS: True,
+    NO_AUTHORS: 10,
     SEED: 42,
     OUTPUT_DIR: "./output"
 
@@ -108,9 +108,6 @@ bi_encoder_params_contrastive= {
     NO_AUTHORS: 10,
     SEED: 42,
     OUTPUT_DIR: "./output",
-    POOLING: MEAN,
-    POSITIVE_LABEL: 1,
-    NEGATIVE_LABEL: 0,
     LOSS: CONTRASTIVE,
     THRESHOLD: 0.5,
     BALANCE: False
@@ -155,7 +152,7 @@ bi_encoder_params_batch_hard_triplet_10= {
 
 cross_encoder_params_10= {
     CHECKPOINT: "bert-base-cased",
-    TRAIN_BATCH_SIZE: 16,
+    TRAIN_BATCH_SIZE: 8,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
     MAX_SOURCE_TEXT_LENGTH: 128,

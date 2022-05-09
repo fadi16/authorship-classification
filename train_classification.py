@@ -10,7 +10,7 @@ from sklearn import metrics
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors_AA, get_datasets_for_n_authors_AV, \
+from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors, get_datasets_for_n_authors_AV, \
     AuthorsDatasetAV, CollatorAV
 from model_params import *
 from utils import *
@@ -27,7 +27,7 @@ def train_loop_AA(params):
     # for producing graphs with tensorboard
     tb = SummaryWriter()
 
-    train_df, val_df, test_df = get_datasets_for_n_authors_AA(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, )
+    train_df, val_df, test_df = get_datasets_for_n_authors(n=params[NO_AUTHORS], val_size=0.1, test_size=0.2, )
 
     tokenizer = AutoTokenizer.from_pretrained(params[CHECKPOINT])
     config = AutoConfig.from_pretrained(params[CHECKPOINT], num_labels=params[NO_AUTHORS])
@@ -219,4 +219,4 @@ def get_ens_class_weights(beta, class_to_no_samples):
 
 
 if __name__ == "__main__":
-    train_loop_AA(model_paramsAV1)
+    train_loop_AA(model_params_classification_10)
