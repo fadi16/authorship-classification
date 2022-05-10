@@ -31,21 +31,6 @@ NEGATIVE_LABEL = "NEGATIVE_LABEL"
 # bert authors recommend:
 # batch sizes: 8, 16, 32, 64, 128. learning rates: 3e-4, 1e-4, 5e-5, 3e-5.
 
-# gives 0.36 sigmoid log loss, 87.9 accuracy
-model_params_spooky_authors = {
-    MODEL: "BERT",
-    CHECKPOINT: "bert-base-cased",
-    # a bigger batch size than 16 gives cuda out of memory errors on colab
-    TRAIN_BATCH_SIZE: 16,
-    VALID_BATCH_SIZE: 16,
-    TRAIN_EPOCHS: 10,
-    LEARNING_RATE: 1e-5,
-    MAX_SOURCE_TEXT_LENGTH: 512,
-    SEED: 42,
-    DROUPOUT: 0.3,
-    BETA_FOR_WEIGHTED_CLASS_LOSS: 0.9999,
-    OUTPUT_DIR: "./output"
-}
 
 model_params_classification_10 = {
     MODEL : AA,
@@ -84,30 +69,6 @@ model_params_classification_50 = {
 }
 
 
-
-model_paramsAV1 = {
-    MODEL : AV,
-    CHECKPOINT: "bert-base-cased",
-    TRAIN_BATCH_SIZE: 32,
-    VALID_BATCH_SIZE: 32,
-    TRAIN_EPOCHS: 10,
-    ADAM_EPSILON: 1e-8,
-    LEARNING_RATE: 4e-5,
-    MAX_SOURCE_TEXT_LENGTH: 128,
-    USE_SCHEDULER: True,
-    WARMUP_RATIO: 0.06,
-    USE_CLASS_WEIGHTED_LOSS: False,
-    NO_AUTHORS: 10,
-    SEED: 42,
-    OUTPUT_DIR: "./output",
-    POOLING: MEAN,
-    MULTIPLIER: 2,
-    FREEZE_NO_EPOCHS: 1,
-    DROUPOUT: 0.3,
-    POSITIVE_LABEL: 1,
-    NEGATIVE_LABEL: -1
-
-}
 LOSS = "LOSS"
 CONTRASTIVE = "CONTRASTIVE"
 ONLINE_CONTRASTIVE = "ONLINE_CONTRASTIVE"
@@ -116,43 +77,43 @@ BATCH_HARD_TRIPLET = "BATCH_HARD_TRIPLET"
 BALANCE = "BALANCE"
 BEST_K = "BEST_K"
 
-bi_encoder_params_contrastive= {
-    CHECKPOINT: "bert-base-cased",
-    TRAIN_BATCH_SIZE: 32,
-    VALID_BATCH_SIZE: 32,
-    TRAIN_EPOCHS: 5,
-    LEARNING_RATE: 4e-5,
-    MAX_SOURCE_TEXT_LENGTH: 128,
-    USE_SCHEDULER: True,
-    WARMUP_RATIO: 0.06,
-    NO_AUTHORS: 10,
-    SEED: 42,
-    OUTPUT_DIR: "./output",
-    LOSS: CONTRASTIVE,
-    THRESHOLD: 0.5,
-    BALANCE: False
-}
-
-bi_encoder_params_online_contrastive= {
-    CHECKPOINT: "bert-base-cased",
-    TRAIN_BATCH_SIZE: 32,
-    VALID_BATCH_SIZE: 32,
-    TRAIN_EPOCHS: 5,
-    LEARNING_RATE: 4e-5,
-    MAX_SOURCE_TEXT_LENGTH: 128,
-    USE_SCHEDULER: True,
-    WARMUP_RATIO: 0.06,
-    NO_AUTHORS: 10,
-    SEED: 42,
-    OUTPUT_DIR: "./output",
-    POOLING: MEAN,
-    POSITIVE_LABEL: 1,
-    NEGATIVE_LABEL: 0,
-    LOSS: ONLINE_CONTRASTIVE,
-    THRESHOLD: 0.7716,
-    BALANCE: False
-
-}
+# bi_encoder_params_contrastive= {
+#     CHECKPOINT: "bert-base-cased",
+#     TRAIN_BATCH_SIZE: 32,
+#     VALID_BATCH_SIZE: 32,
+#     TRAIN_EPOCHS: 5,
+#     LEARNING_RATE: 4e-5,
+#     MAX_SOURCE_TEXT_LENGTH: 128,
+#     USE_SCHEDULER: True,
+#     WARMUP_RATIO: 0.06,
+#     NO_AUTHORS: 10,
+#     SEED: 42,
+#     OUTPUT_DIR: "./output",
+#     LOSS: CONTRASTIVE,
+#     THRESHOLD: 0.5,
+#     BALANCE: False
+# }
+#
+# bi_encoder_params_online_contrastive= {
+#     CHECKPOINT: "bert-base-cased",
+#     TRAIN_BATCH_SIZE: 32,
+#     VALID_BATCH_SIZE: 32,
+#     TRAIN_EPOCHS: 5,
+#     LEARNING_RATE: 4e-5,
+#     MAX_SOURCE_TEXT_LENGTH: 128,
+#     USE_SCHEDULER: True,
+#     WARMUP_RATIO: 0.06,
+#     NO_AUTHORS: 10,
+#     SEED: 42,
+#     OUTPUT_DIR: "./output",
+#     POOLING: MEAN,
+#     POSITIVE_LABEL: 1,
+#     NEGATIVE_LABEL: 0,
+#     LOSS: ONLINE_CONTRASTIVE,
+#     THRESHOLD: 0.7716,
+#     BALANCE: False
+#
+# }
 
 bi_encoder_params_batch_hard_triplet_10= {
     CHECKPOINT: "bert-base-cased",
@@ -199,7 +160,7 @@ cross_encoder_params_10= {
     NO_AUTHORS: 10,
     SEED: 42,
     OUTPUT_DIR: "./output",
-    THRESHOLD: 0.5, # todo need to find the right one
+    THRESHOLD: 0.61,
     BALANCE: True
 }
 
@@ -214,6 +175,6 @@ cross_encoder_params_50= {
     NO_AUTHORS: 50,
     SEED: 42,
     OUTPUT_DIR: "./output",
-    THRESHOLD: 0.5, # todo need to find the right one
+    THRESHOLD: 0.324,
     BALANCE: True
 }

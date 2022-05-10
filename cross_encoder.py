@@ -26,7 +26,7 @@ def test_AV(model, threshold, test_pairs, test_labels):
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
-    predictions_df.to_csv(f"AV_authors{len(set(test_labels))}.csv")
+    predictions_df.to_csv(f"test_AV_authors.csv")
     print(f"Test Accuracy = {accuracy}")
 
 

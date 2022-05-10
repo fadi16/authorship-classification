@@ -68,7 +68,8 @@ def save_embeddings(model, train_samples, val_samples, test_samples, path):
 def test_classification(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k,
                         model=None):
     if model is None:
-        model = SentenceTransformer(params[CHECKPOINT])
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = SentenceTransformer(params[CHECKPOINT], device=device)
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
     accuracy = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
@@ -168,26 +169,18 @@ class ClassificationEvaluator(SentenceEvaluator):
 
         tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
-        cos_dists = []
-        for i in range(len(val_embeddings)):
-            val_embedding = [val_embeddings[i]]
-            cos_dists.append(cosine_distances(val_embedding, train_embeddings))
+        cos_dists = cosine_distances(val_embeddings, train_embeddings)
+        sorted_indicies = np.argsort(cos_dists, axis=1)
 
         top_k_accuracies = []
         print("obtaining accuracies for all topks")
         for top_k in self.top_ks:
             predicted_val_labels = []
-
+            sorted_indicies_topk = sorted_indicies[:,:top_k]
             for i in range(len(val_embeddings)):
-                candidate_labels = []
-                cos_dist = cos_dists[i]
-                sorted_indicies = np.argsort(cos_dist)[0][:top_k]
-                for topk_index in sorted_indicies:
-                    candidate_label = self.train_labels[topk_index]
-                    candidate_labels.append(candidate_label)
-
+                candidate_labels = [self.train_labels[topk_index] for topk_index in sorted_indicies_topk[i]]
                 # now we choose the label with the highest count
-                voted_label = max(set(candidate_labels), key=candidate_labels.count)
+                voted_label = np.bincount(candidate_labels).argmax()
                 predicted_val_labels.append(voted_label)
 
             if save:
@@ -217,10 +210,6 @@ def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_la
     pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
     #########################
-
-    if params[BALANCE]:
-        train_samples, train_labels = balance_fn(train_samples, train_labels)
-        # todo balance the training pairs too??
 
     if params[LOSS] != BATCH_HARD_TRIPLET:  # contrastive losses need pairs
         # positive label is 1, negative label is 0
@@ -291,13 +280,16 @@ def e2e_experiment(params, train, test, tune):
     seed_for_reproducability()
 
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
-    val_samples, val_labels = get_samples_and_labels(params[NO_AUTHORS], "val")
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
 
-    train_pairs, train_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
-    val_pairs, val_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "val")
     test_pairs, test_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
 
+    try:
+        val_samples, val_labels = get_samples_and_labels(params[NO_AUTHORS], "val")
+        train_pairs, train_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
+        val_pairs, val_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "val")
+    except:
+      print("some files were not found, this is not expected unless you're testing for unknown authors")
 
     model = None
     if train:
@@ -307,7 +299,7 @@ def e2e_experiment(params, train, test, tune):
     if tune:
         # the checkpoint will be here after training
         params[CHECKPOINT] = "./output/checkpoints"
-        best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=False,
+        best_k = tune_k(params, train_samples, train_labels, val_samples, val_pairs_labels, batch_size=32, show=False,
                         model=model)
 
         tune_AV_threashold(params, val_pairs, val_labels, model=None)
@@ -318,13 +310,13 @@ def e2e_experiment(params, train, test, tune):
         acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                      batch_size=32, top_k=10, model=None)
         acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                      batch_size=32, top_k=best_k, model=None)
+                                                      batch_size=32, top_k=params[BEST_K], model=None)
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
 
         stats = {
             "AV Accuracy": acc_av,
             "Classification Accuracy k = 10": acc_classification_k10,
-            f"Classification Accuracy k = {best_k}": acc_classification_topk,
+            f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
 
         }
         print(stats)
@@ -339,4 +331,4 @@ def e2e_experiment(params, train, test, tune):
 if __name__ == "__main__":
     seed_for_reproducability()
     params = bi_encoder_params_batch_hard_triplet_10
-    e2e_experiment(params, train=True, test=False, tune=False)
+    e2e_experiment(params, train=False, test=True, tune=False)

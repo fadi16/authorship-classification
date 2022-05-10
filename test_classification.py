@@ -9,7 +9,7 @@ import transformers
 from sklearn import metrics
 from torch.utils.data import DataLoader
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
-from blog_dataset import AuthorsDatasetAA, CollatorAA, get_datasets_for_n_authors
+from blog_dataset import AuthorsDatasetAA, CollatorAA
 from model_params import *
 from utils import *
 
