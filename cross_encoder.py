@@ -54,8 +54,10 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         cos_dist = cos_dists[i]
         top_k_indicies = np.argsort(cos_dist)[0][:top_k]
 
+        pairs =  [[test_samples[i], train_samples[topk_index]] for topk_index in top_k_indicies]
+
         predictions = cross_encoder_model.predict(
-            [[test_samples[i], train_samples[topk_index]] for topk_index in top_k_indicies],
+           pairs,
             convert_to_numpy=True,
             show_progress_bar=True)
         for topk_index, prediction in zip(top_k_indicies, predictions):
@@ -135,8 +137,8 @@ def e2e_classification_test(params):
     cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
                                  max_length=params[MAX_SOURCE_TEXT_LENGTH])
 
-    train_samples, train_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
-    test_samples, test_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
 
     test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
                                   train_samples=train_samples,
@@ -147,6 +149,7 @@ def e2e_classification_test(params):
 
 if __name__ == "__main__":
     params = cross_encoder_params_10
-    train(params)
+    e2e_classification_test(params)
+    #train(params)
     #e2e_AV_test(params)
     #e2e_classification_test(params)
