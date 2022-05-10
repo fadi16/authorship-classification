@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 
 
 def tsne_plot(embeddings, labels, name, path="./output", show=False):
+    """Creates TSNE plot of embeddings"""
     tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, n_iter=1000, n_jobs=10)
     x = embeddings
     y = np.array(labels)
@@ -41,6 +42,8 @@ def tsne_plot(embeddings, labels, name, path="./output", show=False):
 
 
 def save_embeddings(model, train_samples, val_samples, test_samples, path):
+    """Saves embeddings to avoid recalculation
+    """
     train_embeddings = model.encode(train_samples,
                                     convert_to_numpy=True,
                                     batch_size=32,
@@ -67,6 +70,7 @@ def save_embeddings(model, train_samples, val_samples, test_samples, path):
 
 def test_classification(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k,
                         model=None):
+    """Tests bi-encoder on classification"""
     if model is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = SentenceTransformer(params[CHECKPOINT], device=device)
@@ -80,6 +84,7 @@ def test_classification(params, training_samples, training_labels, val_samples, 
 
 
 def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
+    """Tests bi-encoder on Author verification"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT], device=device)
@@ -119,6 +124,8 @@ def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
 
 
 def tune_k(params, training_samples, training_labels, val_samples, val_labels, batch_size, show=False, model=None):
+    """Tunes k to find best value
+    the top k documents and perform classification"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT], device=device)
@@ -261,7 +268,7 @@ def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_la
     return model
 
 
-def tune_AV_threashold(params, val_pairs, val_labels, model=None):
+def tune_AV_threshold(params, val_pairs, val_labels, model=None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if model is None:
@@ -302,21 +309,25 @@ def e2e_experiment(params, train, test, tune):
         best_k = tune_k(params, train_samples, train_labels, val_samples, val_pairs_labels, batch_size=32, show=False,
                         model=model)
 
-        tune_AV_threashold(params, val_pairs, val_labels, model=None)
+        tune_AV_threshold(params, val_pairs, val_labels, model=None)
 
     if test:
-        acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
+        acc50_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
+        params[NO_AUTHORS] = 75
+        
+        acc75_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
 
-        acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                     batch_size=32, top_k=10, model=None)
-        acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                      batch_size=32, top_k=params[BEST_K], model=None)
+        # acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                    #  batch_size=32, top_k=10, model=None)
+        # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                    #   batch_size=32, top_k=params[BEST_K], model=None)
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
 
         stats = {
-            "AV Accuracy": acc_av,
-            "Classification Accuracy k = 10": acc_classification_k10,
-            f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
+            "AV Accuracy": acc50_av,
+            "AV Accuracy": acc75_av
+            # "Classification Accuracy k = 10": acc_classification_k10,
+            # f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
 
         }
         print(stats)
@@ -330,5 +341,5 @@ def e2e_experiment(params, train, test, tune):
 
 if __name__ == "__main__":
     seed_for_reproducability()
-    params = bi_encoder_params_batch_hard_triplet_10
+    params = bi_encoder_params_batch_hard_triplet_50
     e2e_experiment(params, train=False, test=True, tune=False)

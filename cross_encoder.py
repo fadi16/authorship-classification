@@ -18,6 +18,8 @@ from utils import seed_for_reproducability
 
 
 def test_AV(model, threshold, test_pairs, test_labels):
+    """ Tests model on author verification
+    """
     print("Testing Cross Encoder Accuracy on Authorship Validation")
     pred_scores = model.predict(test_pairs, convert_to_numpy=True, show_progress_bar=True)
     predicted_labels = [1 if s > threshold else 0 for s in pred_scores]
@@ -32,6 +34,8 @@ def test_AV(model, threshold, test_pairs, test_labels):
 
 def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_samples, train_labels,
                                   test_samples, test_labels, top_k, batch_size, threshold=0.5):
+    """Tests using combination of cross and bi-encoder model on author classification
+    """
     train_embeddings = bi_encoder_model.encode(train_samples,
                                                convert_to_numpy=True,
                                                batch_size=batch_size,
@@ -79,6 +83,8 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
 
 
 def train(params):
+    """Trains model on given params
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # defining the model
@@ -119,6 +125,8 @@ def train(params):
 
 
 def e2e_AV_test(params):
+    """End to End author verification test
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_for_reproducability()
     params[CHECKPOINT] = "./output/checkpoints/"
@@ -129,6 +137,8 @@ def e2e_AV_test(params):
 
 
 def e2e_classification_test(params):
+    """End to End classification test
+    uses both cross and bi encoder to test on author classification"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     seed_for_reproducability()
@@ -136,7 +146,6 @@ def e2e_classification_test(params):
     bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
     cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
                                  max_length=params[MAX_SOURCE_TEXT_LENGTH])
-
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
 
@@ -149,6 +158,7 @@ def e2e_classification_test(params):
 
 if __name__ == "__main__":
     params = cross_encoder_params_10
+    # params[NO_AUTHORS] = 15
     e2e_classification_test(params)
     #train(params)
     #e2e_AV_test(params)
