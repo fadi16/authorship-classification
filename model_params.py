@@ -34,7 +34,7 @@ NEGATIVE_LABEL = "NEGATIVE_LABEL"
 
 model_params_classification_10 = {
     MODEL : AA,
-    CHECKPOINT: "bert-base-cased",
+    CHECKPOINT: "./output/checkpoints/classifier-10",
     TRAIN_BATCH_SIZE: 8,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
@@ -46,7 +46,7 @@ model_params_classification_10 = {
     USE_CLASS_WEIGHTED_LOSS: True,
     NO_AUTHORS: 10,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/classification-10",
     BETA_FOR_WEIGHTED_CLASS_LOSS: 0.9999,
 }
 
@@ -64,7 +64,7 @@ model_params_classification_50 = {
     USE_CLASS_WEIGHTED_LOSS: True,
     NO_AUTHORS: 50,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/classification-50",
     BETA_FOR_WEIGHTED_CLASS_LOSS: 0.9999,
 }
 
@@ -125,7 +125,7 @@ bi_encoder_params_batch_hard_triplet_10= {
     WARMUP_RATIO: 0.06,
     NO_AUTHORS: 10,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/bi-encoder-10",
     LOSS: BATCH_HARD_TRIPLET,
     THRESHOLD: 0.1994,
     BALANCE: True,
@@ -142,11 +142,11 @@ bi_encoder_params_batch_hard_triplet_50 = {
     WARMUP_RATIO: 0.06,
     NO_AUTHORS: 50,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/bi-encoder-50",
     LOSS: BATCH_HARD_TRIPLET,
     THRESHOLD: 0.5, # todo need to find the right one
     BALANCE: True,
-    BEST_K: 10 # todo needs fine tuning
+    BEST_K: 118 # todo needs fine tuning
 }
 
 cross_encoder_params_10= {
@@ -159,7 +159,7 @@ cross_encoder_params_10= {
     WARMUP_RATIO: 0.06,
     NO_AUTHORS: 10,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/cross-encoder-10",
     THRESHOLD: 0.61,
     BALANCE: True
 }
@@ -174,7 +174,7 @@ cross_encoder_params_50= {
     WARMUP_RATIO: 0.06,
     NO_AUTHORS: 50,
     SEED: 42,
-    OUTPUT_DIR: "./output",
+    OUTPUT_DIR: "./output/cross-encoder-50",
     THRESHOLD: 0.324,
     BALANCE: True
 }

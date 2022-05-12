@@ -1,16 +1,27 @@
 import random
 import re
 from typing import List, Dict
+import os.path
 
 import nltk
 import numpy as np
 import pandas as pd
+from sympy import false
 import torch
 from torch.utils.data import Dataset
 from transformers import DataCollator
 from sklearn.model_selection import train_test_split
 
 from utils import seed_for_reproducability
+
+def get_demo_embeddings_path(no_authors):
+
+    file_path =f"data/blog/{no_authors}_authors/demo_test_{no_authors}_authors_embeddings.pkl" 
+    if os.path.exists(file_path):
+        return file_path
+    else:
+        print(f"\nNo embeddings file in {file_path}\n")
+        exit()
 
 
 # create train, val and test datasets for the "n" authors with the highest number of texts
@@ -362,13 +373,12 @@ def get_pairs_and_labels(no_authors, split, balanced=False):
     s2s = pairs_df["s2"].tolist()
     pairs = [list(pair) for pair in zip(s1s, s2s)]
     labels = pairs_df["label"].tolist()
-
     return pairs, labels
 
 
-def get_samples_and_labels(no_authors, split, balanced=False):
+def get_samples_and_labels(no_authors, split, balanced=False, demo=False):
     df = pd.read_csv(
-        f"./data/blog/{no_authors}_authors/{split}_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
+        f"./data/blog/{no_authors}_authors/{'demo_' if demo else ''}{split}_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
     samples = df["content"].tolist()
     labels = df["Target"].tolist()
     return samples, labels

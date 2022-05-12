@@ -69,7 +69,7 @@ def save_embeddings(model, train_samples, val_samples, test_samples, path):
 
 
 def test_classification(params, training_samples, training_labels, val_samples, val_labels, batch_size, top_k,
-                        model=None):
+                        model=None, demo=False, saved_embeddings_path=""):
     """Tests bi-encoder on classification"""
     if model is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,7 +78,9 @@ def test_classification(params, training_samples, training_labels, val_samples, 
                                         top_k)
     accuracy = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
                                                          f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
-                         save=True)
+                         save=True,
+                         demo=demo,
+                         saved_embeddings_path=saved_embeddings_path)
     print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
     return accuracy
 
@@ -161,18 +163,28 @@ class ClassificationEvaluator(SentenceEvaluator):
         self.no_authors = len(set(val_labels))
 
     def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False,
-                 save=False) -> float:
+                 save=False, demo=False,saved_embeddings_path="") -> float:
         print("** Validation **")
-        print("obtaining training samples embeddings")
-        train_embeddings = model.encode(self.train_samples,
+        if (demo):
+            if (saved_embeddings_path==""):
+                print("If this is a demo, saved embeddings need to be supplied")
+                return
+            with open(saved_embeddings_path, 'rb') as f:
+                embeddings = pickle.load(f)
+                train_embeddings = embeddings["train"]
+                val_embeddings = embeddings["test"]
+        else:
+                
+            print("obtaining training samples embeddings")
+            train_embeddings = model.encode(self.train_samples,
+                                            convert_to_numpy=True,
+                                            batch_size=self.batch_size,
+                                            show_progress_bar=True)
+            print("obtaining validation samples embeddings")
+            val_embeddings = model.encode(self.val_samples,
                                         convert_to_numpy=True,
                                         batch_size=self.batch_size,
                                         show_progress_bar=True)
-        print("obtaining validation samples embeddings")
-        val_embeddings = model.encode(self.val_samples,
-                                      convert_to_numpy=True,
-                                      batch_size=self.batch_size,
-                                      show_progress_bar=True)
 
         tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
@@ -283,6 +295,7 @@ def tune_AV_threshold(params, val_pairs, val_labels, model=None):
     ap = evaluator(model, os.path.join(params[OUTPUT_DIR]))
 
 
+
 def e2e_experiment(params, train, test, tune):
     seed_for_reproducability()
 
@@ -305,30 +318,26 @@ def e2e_experiment(params, train, test, tune):
 
     if tune:
         # the checkpoint will be here after training
-        params[CHECKPOINT] = "./output/checkpoints"
-        best_k = tune_k(params, train_samples, train_labels, val_samples, val_pairs_labels, batch_size=32, show=False,
+        params[CHECKPOINT] = "./output/checkpoints/bi-encoder-50/"
+        best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=True,
                         model=model)
 
-        tune_AV_threshold(params, val_pairs, val_labels, model=None)
+        # tune_AV_threshold(params, val_pairs, val_labels, model=None)
 
     if test:
         acc50_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
-        params[NO_AUTHORS] = 75
-        
-        acc75_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
+        # acc75_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
 
         # acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                     #  batch_size=32, top_k=10, model=None)
         # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                     #   batch_size=32, top_k=params[BEST_K], model=None)
-        save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
-
+        # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
         stats = {
+            # "Classification Accuracy k = 10": acc_classification_k10
             "AV Accuracy": acc50_av,
-            "AV Accuracy": acc75_av
-            # "Classification Accuracy k = 10": acc_classification_k10,
+            # "AV Accuracy": acc75_av
             # f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
-
         }
         print(stats)
 
@@ -338,8 +347,55 @@ def e2e_experiment(params, train, test, tune):
     # saved AV results
     # saved embeddings plot
 
+def demo_tr_10_tst_10():
+    seed_for_reproducability()
+    params = bi_encoder_params_batch_hard_triplet_10
+    params[NO_AUTHORS]=10
+
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
+
+
+
+    model = None
+    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
+    acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                 batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
+    # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                #   batch_size=32, top_k=params[BEST_K], model=None)
+    # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
+    stats = {
+        "Classification Accuracy for 10 authors k = 10": acc_classification_k10
+    }
+    print(stats)
+
+def demo_tr_10_tst_15():
+    seed_for_reproducability()
+    params = bi_encoder_params_batch_hard_triplet_10
+    params[NO_AUTHORS]=15
+
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
+
+
+    model = None
+    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
+    acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                 batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
+    # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                #   batch_size=32, top_k=params[BEST_K], model=None)
+    # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
+    stats = {
+        "Classification Accuracy for 15 authors k = 10": acc_classification_k10
+    }
+    print(stats)
+
 
 if __name__ == "__main__":
     seed_for_reproducability()
     params = bi_encoder_params_batch_hard_triplet_50
-    e2e_experiment(params, train=False, test=True, tune=False)
+    # e2e_experiment(params, train=False, test=True, tune=False)
+
+    # Uncomment below to run demos
+    demo_tr_10_tst_10()
+    demo_tr_10_tst_15()

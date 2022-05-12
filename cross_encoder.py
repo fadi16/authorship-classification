@@ -5,6 +5,8 @@ import sys
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_distances
+from sympy import true
+from bi_encoder import save_embeddings
 
 from blog_dataset import *
 from model_params import *
@@ -33,18 +35,36 @@ def test_AV(model, threshold, test_pairs, test_labels):
 
 
 def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_samples, train_labels,
-                                  test_samples, test_labels, top_k, batch_size, threshold=0.5):
+                                  test_samples, test_labels, top_k, batch_size, threshold=0.5, demo = False, save = False, saved_embeddings_path=""):
     """Tests using combination of cross and bi-encoder model on author classification
     """
-    train_embeddings = bi_encoder_model.encode(train_samples,
-                                               convert_to_numpy=True,
-                                               batch_size=batch_size,
-                                               show_progress_bar=True)
-
-    test_embeddings = bi_encoder_model.encode(test_samples,
-                                              convert_to_numpy=True,
-                                              batch_size=batch_size,
-                                              show_progress_bar=True)
+    if (demo):
+        if (saved_embeddings_path==""):
+            print("If this is a demo, saved embeddings need to be supplied")
+            return
+        with open(saved_embeddings_path, 'rb') as f:
+            embeddings = pickle.load(f)
+            train_embeddings = embeddings["train"]
+            test_embeddings = embeddings["test"]
+    else:
+        train_embeddings = bi_encoder_model.encode(train_samples,
+                                                convert_to_numpy=True,
+                                                batch_size=batch_size,
+                                                show_progress_bar=True)
+        
+        test_embeddings = bi_encoder_model.encode(test_samples,
+                                                convert_to_numpy=True,
+                                                batch_size=batch_size,
+                                                show_progress_bar=True)
+        if (save):
+            d = {
+                "train": train_embeddings,
+                "test": test_embeddings
+            }
+            f = open("./data/test_embeddings.pkl", "wb")
+            pickle.dump(d, f)
+            f.close()
+    
 
     cos_dists = []
     for i in range(len(test_embeddings)):
@@ -78,7 +98,7 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
-    predictions_df.to_csv(f"test_e2e_classification_authors{len(set(test_labels))}.csv")
+    predictions_df.to_csv(f"test_e2e_classification_authors{len(set(test_labels))}_samples{len(test_samples)}.csv")
     print(f"E2E bi-encoder + cross-encoder (k={top_k}) Test Accuracy = {accuracy}")
 
 
@@ -146,20 +166,75 @@ def e2e_classification_test(params):
     bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
     cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
                                  max_length=params[MAX_SOURCE_TEXT_LENGTH])
+    # params[NO_AUTHORS] = 15
+    
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
+    
+    test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
+                                  train_samples=train_samples,
+                                  train_labels=train_labels,
+                                  test_samples=test_samples, test_labels=test_labels, top_k=161, batch_size=32,
+                                  threshold=params[THRESHOLD],
+                                  save=False)
+
+def demo_tr_10_tst_10_with_bi_encoder():
+    """Small test to demonstrate performance during live demo
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    seed_for_reproducability()
+
+    params = cross_encoder_params_10
+    params[NO_AUTHORS] = 10
+
+    bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
+    cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
+                                 max_length=params[MAX_SOURCE_TEXT_LENGTH])
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
+
+    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
+    test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
+                                  train_samples=train_samples,
+                                  train_labels=train_labels,
+                                  test_samples=test_samples, test_labels=test_labels, top_k=10, batch_size=32,
+                                  threshold=params[THRESHOLD], 
+                                  demo=True,
+                                  saved_embeddings_path=saved_embeddings_path)
+
+def demo_tr_10_tst_15_with_bi_encoder():
+    """Small test to demonstrate performance during live demo
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    seed_for_reproducability()
+
+    params = cross_encoder_params_10
+
+    bi_encoder = SentenceTransformer(f"./output/checkpoints/bi-encoder-{params[NO_AUTHORS]}", device=device)
+    cross_encoder = CrossEncoder(f"./output/checkpoints/cross-encoder-{params[NO_AUTHORS]}", device=device,
+                                 max_length=params[MAX_SOURCE_TEXT_LENGTH])
+    params[NO_AUTHORS] = 15
+    train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
+
+    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
 
     test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
                                   train_samples=train_samples,
                                   train_labels=train_labels,
                                   test_samples=test_samples, test_labels=test_labels, top_k=10, batch_size=32,
-                                  threshold=params[THRESHOLD])
+                                  threshold=params[THRESHOLD], 
+                                  demo=True,
+                                  saved_embeddings_path=saved_embeddings_path)
 
 
 if __name__ == "__main__":
     params = cross_encoder_params_10
-    # params[NO_AUTHORS] = 15
-    e2e_classification_test(params)
     #train(params)
     #e2e_AV_test(params)
-    #e2e_classification_test(params)
+    # e2e_classification_test(params)
+    # Uncomment below to run demos
+    demo_tr_10_tst_10_with_bi_encoder()
+    demo_tr_10_tst_15_with_bi_encoder()
