@@ -4,6 +4,7 @@ import random
 import sys
 
 import numpy as np
+from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics.pairwise import cosine_distances
 from sympy import true
 from bi_encoder import save_embeddings
@@ -116,20 +117,21 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         voted_label = max(set(candidate_labels), key=candidate_labels.count) if len(candidate_labels) != 0 else -1
         predicted_labels.append(voted_label)
 
-    # todo accuracy recall etc
     accuracy = metrics.accuracy_score(test_labels, predicted_labels)
-    f1_micro = metrics.f1_score(test_labels, predicted_labels, average='micro')
-    f1_macro = metrics.f1_score(test_labels, predicted_labels, average='macro')
-    mcc = metrics.matthews_corrcoef(test_labels, predicted_labels)
+    overall_precision_recall_f1 = precision_recall_fscore_support(test_labels, predicted_labels)
+    overall_precision = overall_precision_recall_f1[0]
+    overall_recall = overall_precision_recall_f1[1]
+    overall_f1 = overall_precision_recall_f1[2]
+
     predictions_df = pd.DataFrame({
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
     predictions_df.to_csv(f"test_e2e_classification_authors{len(set(test_labels))}_samples{len(test_samples)}.csv")
     print(f"E2E bi-encoder + cross-encoder (k={top_k}) Test Accuracy = {accuracy}")
-    print(f"F1 micro Score = {f1_micro}")
-    print(f"f1 macro Score = {f1_macro}")
-    print(f"MCC Score = {mcc}")
+    print(f"precision = {overall_precision}")
+    print(f"recall = {overall_recall}")
+    print(f"f1 = {overall_f1}")
 
 
 def train(params):

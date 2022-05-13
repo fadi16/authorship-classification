@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import transformers
 from sklearn import metrics
+from sklearn.metrics import precision_recall_fscore_support
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
@@ -273,24 +274,17 @@ def val_step_AA(epoch, model, val_loader, device, tb):
 
                 pbar.update(1)
 
-    log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(
+    accuracy, precision, recall, f1 = get_eval_scores(
         all_outputs_with_softmax, all_labels)
 
     average_val_loss = np.mean(val_losses)
 
-    # results with sigmoid and softmax
     print(f"Average Validation Loss = {average_val_loss}")
     print(f"** Finished validating epoch {epoch} **")
-    print(f"Accuracy Score = {accuracy_softmax}")
-    print(f"F1 Score (Micro) = {f1_score_micro_softmax}")
-    print(f"F1 Score (Macro) = {f1_score_macro_softmax}")
-    print(f"Multi Class Log Loss (softmax) = {log_loss_softmax}")
-
-    tb.add_scalar("val_loss", average_val_loss, epoch)
-    tb.add_scalar("val_accuracy", accuracy_softmax, epoch)
-    tb.add_scalar("val_f1_score_macro", f1_score_macro_softmax, epoch)
-    tb.add_scalar("val_f1_score_micro", f1_score_micro_softmax, epoch)
-    tb.add_scalar("val_log_loss_softmax", log_loss_softmax, epoch)
+    print(f"Accuracy Score = {accuracy}")
+    print(f"precision = {precision}")
+    print(f"recall = {recall}")
+    print(f"f1 = {f1}")
 
     return average_val_loss
 
@@ -299,16 +293,12 @@ def get_eval_scores(outputs, labels):
     pred_labels = [get_one_hot_class_from_probs(output) for output in outputs]
     # no. correctly classified / total number of samples
     accuracy = metrics.accuracy_score(labels, pred_labels)
-    f1_score_micro = metrics.f1_score(labels, pred_labels, average='micro')
-    f1_score_macro = metrics.f1_score(labels, pred_labels, average='macro')
+    overall_precision_recall_f1 = precision_recall_fscore_support(labels, pred_labels)
+    overall_precision = overall_precision_recall_f1[0]
+    overall_recall = overall_precision_recall_f1[1]
+    overall_f1 = overall_precision_recall_f1[2]
 
-    # rescale in case of using sigmoid
-    probs = [rescale_probabilities(output) for output in outputs]
-    # this clips probabilities - like they do in the experiment (they even use the same parameter)
-    log_loss = metrics.log_loss(labels, probs)
-
-    return log_loss, accuracy, f1_score_micro, f1_score_macro
-
+    return accuracy, overall_precision, overall_recall, overall_f1
 
 # weighting classes based on the effective number of samples - from paper Class-Balanced Loss Based on Effective
 # Number of Samples https://openaccess.thecvf.com/content_CVPR_2019/papers/Cui_Class
@@ -377,13 +367,14 @@ def test(params, test_csv=None):
     predicted_labels_indidices = [get_class_index_from_probs(output) for output in all_outputs_with_softmax]
     actual_labels_indicies = [get_class_index_from_probs(actual_label) for actual_label in all_labels]
 
-    log_loss_softmax, accuracy_softmax, f1_score_micro_softmax, f1_score_macro_softmax = get_eval_scores(
+    accuracy, precision, recall, f1 = get_eval_scores(
         all_outputs_with_softmax, all_labels)
 
-    print(f"Accuracy Score = {accuracy_softmax}")
-    print(f"F1 Score (Micro) = {f1_score_micro_softmax}")
-    print(f"F1 Score (Macro) = {f1_score_macro_softmax}")
-    print(f"Multi Class Log Loss (softmax) = {log_loss_softmax}")
+    print(f"Accuracy Score = {accuracy}")
+    print(f"precision = {precision}")
+    print(f"recall = {recall}")
+    print(f"f1 = {f1}")
+
 
     predictions_df = pd.DataFrame({
         "predicted_labels": predicted_labels_indidices,

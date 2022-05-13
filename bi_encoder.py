@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import precision_recall_fscore_support
 from sklearn.utils import shuffle
 from blog_dataset import *
 from model_params import *
@@ -100,11 +101,11 @@ def test_classification(params, training_samples, training_labels, val_samples, 
         model = SentenceTransformer(params[CHECKPOINT], device=device)
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
-    accuracy, f1_micro, f1_macro, mcc= evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
-                                                         f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
-                         save=True,
-                         demo=demo,
-                         saved_embeddings_path=saved_embeddings_path)
+    accuracy, f1_micro, f1_macro, mcc = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
+                                                                                  f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
+                                                  save=True,
+                                                  demo=demo,
+                                                  saved_embeddings_path=saved_embeddings_path)
     print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
     return accuracy, f1_micro, f1_macro, mcc
 
@@ -229,9 +230,9 @@ class ClassificationEvaluator(SentenceEvaluator):
             f.close()
         print("obtaining validation samples embeddings")
         val_embeddings = model.encode(self.val_samples,
-                                    convert_to_numpy=True,
-                                    batch_size=self.batch_size,
-                                    show_progress_bar=True)
+                                      convert_to_numpy=True,
+                                      batch_size=self.batch_size,
+                                      show_progress_bar=True)
 
         tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
@@ -241,9 +242,9 @@ class ClassificationEvaluator(SentenceEvaluator):
         sorted_indicies = np.argsort(cos_dists, axis=1)
 
         top_k_accuracies = []
-        top_k_f1_micros =  []
-        top_k_f1_macros = []
-        top_k_mccs = []
+        top_k_precisions = []
+        top_k_recalls = []
+        top_k_f1s = []
         print("obtaining accuracies for all topks")
         for top_k in self.top_ks:
             predicted_val_labels = []
@@ -262,23 +263,28 @@ class ClassificationEvaluator(SentenceEvaluator):
                 predictions_df.to_csv(output_path)
 
             accuracy = metrics.accuracy_score(self.val_labels, predicted_val_labels)
-            f1_micro = metrics.f1_score(self.val_labels, predicted_val_labels, average='micro')
-            f1_macro = metrics.f1_score(self.val_labels, predicted_val_labels, average='macro')
-            mcc = metrics.matthews_corrcoef(self.val_labels, predicted_val_labels)            
+
+            overall_precision_recall_f1 = precision_recall_fscore_support(self.val_labels, predicted_val_labels)
+            overall_precision = overall_precision_recall_f1[0]
+            overall_recall = overall_precision_recall_f1[1]
+            overall_f1 = overall_precision_recall_f1[2]
             top_k_accuracies.append(accuracy)
-            top_k_f1_micros.append(f1_micro)
-            top_k_f1_macros.append(f1_macro)
-            top_k_mccs.append(mcc)
+            top_k_precisions.append(overall_precision)
+            top_k_recalls.append(overall_recall)
+            top_k_f1s.append(overall_f1)
 
         print(f"Accuracies for {self.top_ks} are {top_k_accuracies}")
         accuracy = top_k_accuracies[self.top_ks.index(self.top_k)]
-        f1_micro = top_k_f1_micros[self.top_ks.index(self.top_k)]
-        f1_macro = top_k_f1_macros[self.top_ks.index(self.top_k)]
-        mcc = top_k_mccs[self.top_ks.index(self.top_k)]
+        precision = top_k_precisions[self.top_ks.index(self.top_k)]
+        recall = top_k_recalls[self.top_ks.index(self.top_k)]
+        f1 = top_k_f1s[self.top_ks.index(self.top_k)]
 
         if output_list:
             return top_k_accuracies
-        return accuracy, f1_micro, f1_macro, mcc
+        if demo:
+            return accuracy, precision, recall, f1
+        else:
+            return accuracy
 
 
 def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
@@ -416,11 +422,21 @@ def e2e_experiment(params, train, test, tune):
         # test the model for AV
         acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
         # test authorship classification using 10-NN
-        acc_classification_k10, f1_micro_k10, f1_macro_k10, mcc_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                     batch_size=32, top_k=10, model=None)
+        acc_classification_k10, f1_micro_k10, f1_macro_k10, mcc_k10 = test_classification(params, train_samples,
+                                                                                          train_labels, test_samples,
+                                                                                          test_labels,
+                                                                                          batch_size=32, top_k=10,
+                                                                                          model=None)
         # test authorship classification using BEST_K-NN
-        acc_classification_best_k, f1_micro_best_k, f1_macro_best_k, mcc_best_k = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                      batch_size=32, top_k=params[BEST_K], model=None)
+        acc_classification_best_k, f1_micro_best_k, f1_macro_best_k, mcc_best_k = test_classification(params,
+                                                                                                      train_samples,
+                                                                                                      train_labels,
+                                                                                                      test_samples,
+                                                                                                      test_labels,
+                                                                                                      batch_size=32,
+                                                                                                      top_k=params[
+                                                                                                          BEST_K],
+                                                                                                      model=None)
         # reuse embedding next time
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
 
@@ -437,20 +453,25 @@ def e2e_experiment(params, train, test, tune):
 def demo_tr_10_tst_10():
     seed_for_reproducability()
     params = bi_encoder_params_batch_hard_triplet_10
-    params[NO_AUTHORS]=10
+    params[NO_AUTHORS] = 10
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-    saved_embeddings_path= get_demo_embeddings_path("bi_encoder", params[NO_AUTHORS])
-    acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                 batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
+    saved_embeddings_path = get_demo_embeddings_path("bi_encoder", params[NO_AUTHORS])
+    acc_classification_k10, precision, recall, f1 = test_classification(params, train_samples, train_labels,
+                                                                          test_samples, test_labels,
+                                                                          batch_size=32, top_k=10, model=None,
+                                                                          demo=True,
+                                                                          saved_embeddings_path=saved_embeddings_path)
     stats = {
         "Classification Accuracy for 10 authors k = 10": acc_classification_k10,
-        "f1 micro": f1_micro,
-        "f1 macro": f1_macro,
-        "mcc": mcc
+        "precision": precision,
+        "recall": recall,
+        "f1": f1
+
     }
     print(stats)
+
 
 # demo a model trained on 10 authors using a (reduced) test set containing the same 10 authors the model was exposed to
 # IN ADDITION TO 5 authors that the model never saw before
@@ -462,17 +483,18 @@ def demo_tr_10_tst_15():
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
     saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
-    acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels,
+    acc_classification_k10, precision, recall, f1 = test_classification(params, train_samples, train_labels,
                                                                           test_samples, test_labels,
                                                                           batch_size=32, top_k=10, model=None,
                                                                           demo=True,
                                                                           saved_embeddings_path=saved_embeddings_path)
 
     stats = {
-        "Classification Accuracy for 15 authors k = 10": acc_classification_k10,
-        "f1 micro": f1_micro,
-        "f1 macro": f1_macro,
-        "mcc": mcc
+        "Classification Accuracy for 10 authors k = 10": acc_classification_k10,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1
+
     }
     print(stats)
 
