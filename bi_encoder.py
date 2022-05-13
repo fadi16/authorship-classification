@@ -102,12 +102,12 @@ def test_classification(params, training_samples, training_labels, val_samples, 
         model = SentenceTransformer(params[CHECKPOINT], device=device)
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
-    accuracy, f1_micro, f1_macro, mcc = evaluator(model, output_path=f"cls_authors_bi_encoder_{len(set(val_labels))}_topk{top_k}.csv",
+    accuracy, precision, recall, f1 = evaluator(model, output_path=f"cls_authors_bi_encoder_{len(set(val_labels))}_topk{top_k}.csv",
                                                   save=True,\
                                                   demo=demo,
                                                   saved_embeddings_path=saved_embeddings_path)
     #print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
-    return accuracy, f1_micro, f1_macro, mcc
+    return accuracy, precision, recall, f1
 
 
 def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
@@ -422,13 +422,13 @@ def e2e_experiment(params, train, test, tune):
         # test the model for AV
         acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
         # test authorship classification using 10-NN
-        acc_classification_k10, f1_micro_k10, f1_macro_k10, mcc_k10 = test_classification(params, train_samples,
+        accuracy_k10, precision_k10, recall_k10, f1_k10 = test_classification(params, train_samples,
                                                                                           train_labels, test_samples,
                                                                                           test_labels,
                                                                                           batch_size=32, top_k=10,
                                                                                           model=None)
         # test authorship classification using BEST_K-NN
-        acc_classification_best_k, f1_micro_best_k, f1_macro_best_k, mcc_best_k = test_classification(params,
+        accuracy_k_best, precision_k_best, recall_k_best, f1_k_best = test_classification(params,
                                                                                                       train_samples,
                                                                                                       train_labels,
                                                                                                       test_samples,
@@ -442,8 +442,8 @@ def e2e_experiment(params, train, test, tune):
 
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
         stats = {
-            "Classification Accuracy k = 10": acc_classification_k10,
-            f"Classification Accuracy k = {params[BEST_K]}": acc_classification_best_k,
+            "Classification Accuracy k = 10": accuracy_k10,
+            f"Classification Accuracy k = {params[BEST_K]}": accuracy_k_best,
             "AV Accuracy": acc_av,
         }
         print(stats)
