@@ -76,13 +76,13 @@ def test_classification(params, training_samples, training_labels, val_samples, 
         model = SentenceTransformer(params[CHECKPOINT], device=device)
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
-    accuracy = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
+    accuracy, f1_micro, f1_macro, mcc= evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
                                                          f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
                          save=True,
                          demo=demo,
                          saved_embeddings_path=saved_embeddings_path)
     print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
-    return accuracy
+    return accuracy, f1_micro, f1_macro, mcc
 
 
 def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
@@ -172,19 +172,23 @@ class ClassificationEvaluator(SentenceEvaluator):
             with open(saved_embeddings_path, 'rb') as f:
                 embeddings = pickle.load(f)
                 train_embeddings = embeddings["train"]
-                val_embeddings = embeddings["test"]
         else:
-                
             print("obtaining training samples embeddings")
             train_embeddings = model.encode(self.train_samples,
                                             convert_to_numpy=True,
                                             batch_size=self.batch_size,
                                             show_progress_bar=True)
-            print("obtaining validation samples embeddings")
-            val_embeddings = model.encode(self.val_samples,
-                                        convert_to_numpy=True,
-                                        batch_size=self.batch_size,
-                                        show_progress_bar=True)
+            d = {
+                "train": train_embeddings,
+            }
+            f = open("./data/train_embeddings.pkl", "wb")
+            pickle.dump(d, f)
+            f.close()
+        print("obtaining validation samples embeddings")
+        val_embeddings = model.encode(self.val_samples,
+                                    convert_to_numpy=True,
+                                    batch_size=self.batch_size,
+                                    show_progress_bar=True)
 
         tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
@@ -192,6 +196,9 @@ class ClassificationEvaluator(SentenceEvaluator):
         sorted_indicies = np.argsort(cos_dists, axis=1)
 
         top_k_accuracies = []
+        top_k_f1_micros =  []
+        top_k_f1_macros = []
+        top_k_mccs = []
         print("obtaining accuracies for all topks")
         for top_k in self.top_ks:
             predicted_val_labels = []
@@ -210,14 +217,23 @@ class ClassificationEvaluator(SentenceEvaluator):
                 predictions_df.to_csv(output_path)
 
             accuracy = metrics.accuracy_score(self.val_labels, predicted_val_labels)
+            f1_micro = metrics.f1_score(self.val_labels, predicted_val_labels, average='micro')
+            f1_macro = metrics.f1_score(self.val_labels, predicted_val_labels, average='macro')
+            mcc = metrics.matthews_corrcoef(self.val_labels, predicted_val_labels)            
             top_k_accuracies.append(accuracy)
+            top_k_f1_micros.append(f1_micro)
+            top_k_f1_macros.append(f1_macro)
+            top_k_mccs.append(mcc)
 
         print(f"Accuracies for {self.top_ks} are {top_k_accuracies}")
         accuracy = top_k_accuracies[self.top_ks.index(self.top_k)]
+        f1_micro = top_k_f1_micros[self.top_ks.index(self.top_k)]
+        f1_macro = top_k_f1_macros[self.top_ks.index(self.top_k)]
+        mcc = top_k_mccs[self.top_ks.index(self.top_k)]
 
         if output_list:
             return top_k_accuracies
-        return accuracy
+        return accuracy, f1_micro, f1_macro, mcc
 
 
 def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
@@ -300,7 +316,7 @@ def e2e_experiment(params, train, test, tune):
     seed_for_reproducability()
 
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
-    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
+    test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
     test_pairs, test_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
 
@@ -318,24 +334,24 @@ def e2e_experiment(params, train, test, tune):
 
     if tune:
         # the checkpoint will be here after training
-        params[CHECKPOINT] = "./output/checkpoints/bi-encoder-50/"
+        params[CHECKPOINT] = "./output/checkpoints/bi-encoder-10/"
         best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=True,
                         model=model)
 
         # tune_AV_threshold(params, val_pairs, val_labels, model=None)
 
     if test:
-        acc50_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
+        # acc50_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
         # acc75_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
 
-        # acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                    #  batch_size=32, top_k=10, model=None)
+        acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                     batch_size=32, top_k=10, model=None)
         # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                     #   batch_size=32, top_k=params[BEST_K], model=None)
         # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
         stats = {
-            # "Classification Accuracy k = 10": acc_classification_k10
-            "AV Accuracy": acc50_av,
+            "Classification Accuracy k = 10": acc_classification_k10
+            # "AV Accuracy": acc50_av,
             # "AV Accuracy": acc75_av
             # f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
         }
@@ -358,14 +374,17 @@ def demo_tr_10_tst_10():
 
 
     model = None
-    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
-    acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+    saved_embeddings_path= get_demo_embeddings_path("bi_encoder", params[NO_AUTHORS])
+    acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                  batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
     # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                 #   batch_size=32, top_k=params[BEST_K], model=None)
     # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
     stats = {
-        "Classification Accuracy for 10 authors k = 10": acc_classification_k10
+        "Classification Accuracy for 15 authors k = 10": acc_classification_k10,
+        "f1 micro": f1_micro,
+        "f1 macro": f1_macro,
+        "mcc": mcc
     }
     print(stats)
 
@@ -379,21 +398,24 @@ def demo_tr_10_tst_15():
 
 
     model = None
-    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
-    acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+    saved_embeddings_path= get_demo_embeddings_path("bi_encoder", params[NO_AUTHORS])
+    acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                  batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
     # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                 #   batch_size=32, top_k=params[BEST_K], model=None)
     # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
     stats = {
-        "Classification Accuracy for 15 authors k = 10": acc_classification_k10
+        "Classification Accuracy for 15 authors k = 10": acc_classification_k10,
+        "f1 micro": f1_micro,
+        "f1 macro": f1_macro,
+        "mcc": mcc
     }
     print(stats)
 
 
 if __name__ == "__main__":
     seed_for_reproducability()
-    params = bi_encoder_params_batch_hard_triplet_50
+    params = bi_encoder_params_batch_hard_triplet_10
     # e2e_experiment(params, train=False, test=True, tune=False)
 
     # Uncomment below to run demos

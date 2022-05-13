@@ -14,9 +14,9 @@ from sklearn.model_selection import train_test_split
 
 from utils import seed_for_reproducability
 
-def get_demo_embeddings_path(no_authors):
+def get_demo_embeddings_path(model, no_authors):
 
-    file_path =f"data/blog/{no_authors}_authors/demo_test_{no_authors}_authors_embeddings.pkl" 
+    file_path =f"data/blog/{no_authors}_authors/demo_{model}_{no_authors}_authors_embeddings.pkl" 
     if os.path.exists(file_path):
         return file_path
     else:
