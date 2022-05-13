@@ -16,7 +16,7 @@ def evaluation_stats(results_csv_path, print_stats=False):
     matrix = confusion_matrix(y_true=actuals, y_pred=predicted)
     labels = sorted(set(actuals))
     ax = sns.heatmap(matrix, annot=True, cmap='Blues')
-    ax.set_title('Confusion Matrix - 10 Authors\n\n')
+    ax.set_title(f'Confusion Matrix - {len(labels)} Authors\n\n')
     ax.set_xlabel('\nPredicted')
     ax.set_ylabel('Actual')
     ax.xaxis.set_ticklabels(labels)
