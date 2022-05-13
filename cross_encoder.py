@@ -119,7 +119,7 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         predicted_labels.append(voted_label)
 
     accuracy = metrics.accuracy_score(test_labels, predicted_labels)
-    overall_precision_recall_f1 = precision_recall_fscore_support(test_labels, predicted_labels)
+    overall_precision_recall_f1 = precision_recall_fscore_support(test_labels, predicted_labels, average="micro")
     overall_precision = overall_precision_recall_f1[0]
     overall_recall = overall_precision_recall_f1[1]
     overall_f1 = overall_precision_recall_f1[2]

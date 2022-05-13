@@ -264,7 +264,7 @@ class ClassificationEvaluator(SentenceEvaluator):
 
             accuracy = metrics.accuracy_score(self.val_labels, predicted_val_labels)
 
-            overall_precision_recall_f1 = precision_recall_fscore_support(self.val_labels, predicted_val_labels)
+            overall_precision_recall_f1 = precision_recall_fscore_support(self.val_labels, predicted_val_labels, average="micro")
             overall_precision = overall_precision_recall_f1[0]
             overall_recall = overall_precision_recall_f1[1]
             overall_f1 = overall_precision_recall_f1[2]
