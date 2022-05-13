@@ -14,7 +14,7 @@ def evaluation_stats(results_csv_path, print_stats=False):
     ##### confusion matrix
     #  i-th row and j-th column entry indicates the number of samples with true label being i-th class and predicted label being j-th class.
     matrix = confusion_matrix(y_true=actuals, y_pred=predicted)
-    labels = sorted(set(predicted))
+    labels = sorted(set(actuals))
     ax = sns.heatmap(matrix, annot=True, cmap='Blues')
     ax.set_title('Confusion Matrix - 10 Authors\n\n')
     ax.set_xlabel('\nPredicted')
@@ -64,3 +64,4 @@ def evaluation_stats(results_csv_path, print_stats=False):
 
 if __name__ == "__main__":
     path = "./checkpoints_and_eval/cross-encoder-10/test_e2e_classification_authors10.csv"
+    evaluation_stats("./output/bi-encoder-10/cls_authors10_topk10.csv")
