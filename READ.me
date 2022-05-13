@@ -1,22 +1,7 @@
-Structure (1 mark)
-Organise your submission in a manner that facilitates the identification of relevant code for the various
-stages of your solution, e.g., data pre-processing, model training, etc.
-Document your code such that someone outside of your team has a good chance of being able to
-follow it, should they wish to reproduce your results.
-Prepare a README that includes: (1) appropriate attribution to your sources: any datasets, models,
-codebases you used; (2) links to any models that you trained and stored on the cloud; and (3) links to
-huge (>10MB) datasets you used and/or cleansed versions thereof, stored on the cloud.
-
 ##########################################
-Data (4 marks)
-Demonstrate how you collected/built/pre-processed your datasets.
-Illustrate how you checked for issues such as sampling bias, data imbalance and unreliability of data.
-Demonstrate how you attempted to address these issues, if applicable.
-If applicable, demonstrate how you split your data into subsets for developing and evaluating your
-solution.
-
+Data
+##########################################
 Our dataset is collection of blog articles from 2004 and before, extracted from blogger.com
-
 The datasets are huge, they're avaliable here: https://drive.google.com/drive/folders/1ObtlRTiRj8grnNlWKm4pAND1s1ib2tLU?usp=sharing
 The link includes: blogtext.csv which is the original data set of 681285 blogs from more than 19000 authors - this was obtained from
 (https://www.kaggle.com/datasets/rtatman/blog-authorship-corpus)
@@ -28,6 +13,7 @@ Each directory includes training, validation and testing files created from the 
 - 10% validation, this is used for early stopping and to prevent the model from overfitting
 - 20% for testing
 
+The files containing the keyword "balanced" have an equal number of texts for each author.
 The files containing the keyword "pairs" are datasets of positive and negative pairs of text (positive means coming from the same author,
 and negative means coming from a different author). These were created from the original files (the ones without the keyword "pairs") following a similar approach
 to that proposed by Saedi and Dras (2021) - (page 9 from https://arxiv.org/pdf/1912.10616.pdf).
@@ -44,26 +30,40 @@ meaning that the proportions of each class are kept equal in the training and te
 We also use the Class-Balanced Loss described by Cui et al. (2019) (https://openaccess.thecvf.com/content_CVPR_2019/papers/Cui_Class-Balanced_Loss_Based_on_Effective_Number_of_Samples_CVPR_2019_paper.pdf)
 as a way to deal with the balance issue.
 
-We follow most previous AA works in not applying any pre-processing to the data (e.g. removing punctuation, casefolding, normalization, etc)
+We follow most/all previous AA works in not applying any pre-processing to the data (e.g. removing punctuation, casefolding, normalization, etc)
 since these things encode important stylistic features for the model to learn. The only thing we really do here is just stripping
 white spaces from the beginning and the end of the texts.
 
 
 ########################################
+Solution
+#######################################
+All checkpoints available from https://drive.google.com/drive/folders/1g15L_eWjLjNN4CMrBhCnPTPCz9ysELtY?usp=sharing
 
-Solution (4 marks)
-If you are training your own models, clearly show: how you defined the architecture, how you provided
-parameters and how you supplied it with training data (or any other resources, e.g., embeddings).
-If some of your approaches involve feature engineering, clearly show how features were extracted.
-Make your solution easily configurable, i.e., it should be possible for someone outside of your team to
-reconfigure your architecture/model parameters--it will also help you in your experimentation/evaluation.
-If you are reusing existing models, demonstrate how you creatively adapted them for your own
-purposes.
+We experimented with the following architectures (more details in their respective files)
+    - Bert with classification head (classifier.py): current SoTA for blogs dataset (https://aclanthology.org/2020.icon-main.16/)
+    - Bert Bi-Encoder (bi_encoder.py): a similarity based method for classification. Given a database of texts and their authors,
+                  learn bi-encoder that can generate meaningful embeddings yield higher similarity for embeddings of
+                  texts from same authors and lower similarity for texts from different authors.
+                  Given a test sample:
+                    - get the embedding of the given test sample,
+                    - find its K most similar samples in the database
+                    - attribute it to the author with the highest number of samples among those K.
+    - Bert Bi-Encoder + Bert Cross Encoder (cross_encoder.py): use a cross encoder to further filter the K most similar samples in the database
+                                  to the given test sample. Note that both cross and bi-encoder are trained seperately.
 
-# checkpoints availiable from this link https://drive.google.com/drive/folders/1g15L_eWjLjNN4CMrBhCnPTPCz9ysELtY?usp=sharing
-
-Evaluation (3 marks)
-Demonstrate your experiment set-up, i.e., how you systematically evaluated your chosen approaches.
-Select suitable evaluation metrics and carefully consider how you should report overall performance.
-Ensure that any comparison that you are performing is fair, and that there is no data leakage from the
-training/development stage to the evaluation stage.
+We used pytorch and HugginFace for the classifier and sentence-transformers for the Bi and cross encoders.
+All models were finedtuned from the "bert-base-cased" checkpoint.
+####################################
+Evaluation
+###################################
+We run the model on the test set and get a csv file containing the precited and actual labels for each sample.
+Then we use this csv file to evaluate the model (evaluation.py) on the following metrics:
+    - accuracy
+    - overall precision, recall, F1
+    - per-class precision, recall F1
+    - Matthew's Correlation Coefficient
+    - Cohen's Kappa
+    - Confusion Matrix
+    - t-SNE: we plot the embeddings and manually inspect them to see if they
+             are "somehow" clustered
