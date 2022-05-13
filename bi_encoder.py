@@ -484,7 +484,7 @@ def demo_tr_10_tst_15():
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-    saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
+    saved_embeddings_path = get_demo_embeddings_path("bi_encoder", params[NO_AUTHORS])
     acc_classification_k10, precision, recall, f1 = test_classification(params, train_samples, train_labels,
                                                                           test_samples, test_labels,
                                                                           batch_size=32, top_k=10, model=None,
