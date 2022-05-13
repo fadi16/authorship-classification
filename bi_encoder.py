@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.utils import shuffle
 from blog_dataset import *
+from evaluation import evaluation_stats
 from model_params import *
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, SentencesDataset, LoggingHandler, losses, InputExample, models
@@ -101,12 +102,11 @@ def test_classification(params, training_samples, training_labels, val_samples, 
         model = SentenceTransformer(params[CHECKPOINT], device=device)
     evaluator = ClassificationEvaluator(training_samples, training_labels, val_samples, val_labels, batch_size, [top_k],
                                         top_k)
-    accuracy, f1_micro, f1_macro, mcc = evaluator(model, output_path=os.path.join(params[OUTPUT_DIR],
-                                                                                  f"cls_authors{len(set(val_labels))}_topk{top_k}.csv"),
-                                                  save=True,
+    accuracy, f1_micro, f1_macro, mcc = evaluator(model, output_path=f"cls_authors_bi_encoder_{len(set(val_labels))}_topk{top_k}.csv",
+                                                  save=True,\
                                                   demo=demo,
                                                   saved_embeddings_path=saved_embeddings_path)
-    print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
+    #print(f"Test Classification Accuracy = {accuracy} with k = {top_k}")
     return accuracy, f1_micro, f1_macro, mcc
 
 
@@ -204,7 +204,7 @@ class ClassificationEvaluator(SentenceEvaluator):
         self.no_authors = len(set(val_labels))
 
     def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False,
-                 save=False, demo=False, saved_embeddings_path="") -> float:
+                 save=True, demo=False, saved_embeddings_path="") -> float:
         print("** Validation **")
         if demo:
             # use saved embeddings for demo
@@ -472,6 +472,8 @@ def demo_tr_10_tst_10():
     }
     print(stats)
 
+    evaluation_stats(f"cls_authors_bi_encoder_{len(set(test_labels))}_topk{10}.csv")
+
 
 # demo a model trained on 10 authors using a (reduced) test set containing the same 10 authors the model was exposed to
 # IN ADDITION TO 5 authors that the model never saw before
@@ -497,6 +499,8 @@ def demo_tr_10_tst_15():
 
     }
     print(stats)
+
+    evaluation_stats(f"cls_authors_bi_encoder_{len(set(test_labels))}_topk{10}.csv")
 
 
 if __name__ == "__main__":

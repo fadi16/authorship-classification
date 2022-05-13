@@ -10,6 +10,7 @@ from sympy import true
 from bi_encoder import save_embeddings
 
 from blog_dataset import *
+from evaluation import evaluation_stats
 from model_params import *
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, SentencesDataset, LoggingHandler, losses, InputExample, models
@@ -127,7 +128,7 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
-    predictions_df.to_csv(f"test_e2e_classification_authors{len(set(test_labels))}_samples{len(test_samples)}.csv")
+    predictions_df.to_csv(f"cls_bi_and_cross_authors{len(set(test_labels))}.csv")
     print(f"E2E bi-encoder + cross-encoder (k={top_k}) Test Accuracy = {accuracy}")
     print(f"precision = {overall_precision}")
     print(f"recall = {overall_recall}")
@@ -242,6 +243,7 @@ def demo_tr_10_tst_10_with_bi_encoder():
                                   threshold=params[THRESHOLD],
                                   demo=True,
                                   saved_embeddings_path=saved_embeddings_path)
+    evaluation_stats(f"cls_bi_and_cross_authors{len(set(test_labels))}.csv")
 
 
 def demo_tr_10_tst_15_with_bi_encoder():
@@ -269,6 +271,7 @@ def demo_tr_10_tst_15_with_bi_encoder():
                                   threshold=params[THRESHOLD],
                                   demo=True,
                                   saved_embeddings_path=saved_embeddings_path)
+    evaluation_stats(f"cls_bi_and_cross_authors{len(set(test_labels))}.csv")
 
 
 if __name__ == "__main__":

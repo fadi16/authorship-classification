@@ -13,11 +13,12 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import BertTokenizer, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from model_params import *
 from seed import *
-from model import *
+from evaluation import evaluation_stats
 from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset
 from transformers import DataCollator
+
 
 ######################### ABBREVIATIOS ######################################################################
 # AA/Classification: means authorship attribution - given a piece of text, predict its author
@@ -300,6 +301,7 @@ def get_eval_scores(outputs, labels):
 
     return accuracy, overall_precision, overall_recall, overall_f1
 
+
 # weighting classes based on the effective number of samples - from paper Class-Balanced Loss Based on Effective
 # Number of Samples https://openaccess.thecvf.com/content_CVPR_2019/papers/Cui_Class
 # -Balanced_Loss_Based_on_Effective_Number_of_Samples_CVPR_2019_paper.pdf
@@ -375,12 +377,11 @@ def test(params, test_csv=None):
     print(f"recall = {recall}")
     print(f"f1 = {f1}")
 
-
     predictions_df = pd.DataFrame({
         "predicted_labels": predicted_labels_indidices,
         "actual_labels": actual_labels_indicies
     })
-    predictions_df.to_csv(f"eval_{params[MODEL]}_{params[NO_AUTHORS]}.csv")
+    predictions_df.to_csv(f"classifier_predictions_{params[NO_AUTHORS]}_authors.csv")
 
 
 def get_one_hot_class_from_probs(probs: List[float]):
@@ -399,7 +400,9 @@ def rescale_probabilities(probs: List[float]):
 
 
 def demo():
-    test(params=model_params_classification_10, test_csv=f"./data/blog/10_authors/demo_test_10_authors.csv")
+    params = model_params_classification_10
+    test(params=params, test_csv=f"./data/blog/10_authors/demo_test_10_authors.csv")
+    evaluation_stats(f"classifier_predictions_{params[NO_AUTHORS]}_authors.csv")
 
 
 if __name__ == "__main__":
