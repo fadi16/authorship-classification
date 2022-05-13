@@ -12,11 +12,18 @@ from torch.utils.data import Dataset
 from transformers import DataCollator
 from sklearn.model_selection import train_test_split
 
-from utils import seed_for_reproducability
+from seed import seed_for_reproducability
+
+##############################################################################
+# This module contains utilities for constructing the datasets from the original blogtexts.csv file based on the
+# number of authors required, the training objective etc.
+# We follow all Authorship Identification previous works in not applying any preprocessing/cleaning for the data
+# as that would eliminate stylistic features needed for solving the problem
+
+
 
 def get_demo_embeddings_path(no_authors):
-
-    file_path =f"data/blog/{no_authors}_authors/demo_test_{no_authors}_authors_embeddings.pkl" 
+    file_path = f"data/blog/{no_authors}_authors/demo_test_{no_authors}_authors_embeddings.pkl"
     if os.path.exists(file_path):
         return file_path
     else:
@@ -76,189 +83,11 @@ def get_datasets_for_n_authors(n, val_size, test_size, seed=42, path="./data/blo
     return train_df, val_df, test_df
 
 
-# Used to train a Siamese Model based on BERT we created without using sbert (from sentence-transformers)
-# this model and this data set were later abandoned because the model was super slow to train compared to the sbert one
-class AuthorsDatasetAV(Dataset):
-    # set pad_to_max_length to false when we want to do dynamic padding
-    def __init__(self, positive_samples, negative_samples, pos_label, neg_label, tokenizer, max_source_len,
-                 pad_to_max_length=False):
-        self.tokenizer = tokenizer
-        self.max_source_len = max_source_len
-
-        self.pad_to_max_length = pad_to_max_length
-
-        self.pos_label = pos_label
-        self.neg_label = neg_label
-
-        self.samples = [(p[0].strip(), p[1].strip(), pos_label) for p in positive_samples]
-        self.samples.extend([(n[0].strip(), n[1].strip(), neg_label) for n in negative_samples])
-        random.shuffle(self.samples)
-
-    def __len__(self):
-        """returns the length of the dataframe"""
-        return len(self.samples)
-
-    def __getitem__(self, index) -> Dict[str, List]:
-        """return input ids, attention marks and target ids"""
-        source_text1 = self.samples[index][0]
-
-        # tokenizing source
-        source1 = self.tokenizer(
-            source_text1,
-            max_length=self.max_source_len,
-            pad_to_max_length=self.pad_to_max_length,
-            truncation=True,
-            add_special_tokens=True,
-            return_token_type_ids=True
-        )
-
-        source_text2 = self.samples[index][1]
-        source2 = self.tokenizer(
-            source_text2,
-            max_length=self.max_source_len,
-            pad_to_max_length=self.pad_to_max_length,
-            truncation=True,
-            add_special_tokens=True,
-            return_token_type_ids=True
-        )
-
-        labels = self.samples[index][2]
-
-        return {
-            "input_ids": (source1["input_ids"], source2["input_ids"]),
-            "attention_mask": (source1["attention_mask"], source2["attention_mask"]),
-            "labels": labels,
-        }
-
-
-# This is used to train/test the classification-based model It encodes texts and passes it along with a label (for
-# the author of the text) and an attention mask We only consider the first 128 bert tokens, following Fabien et al. (
-# 2020) in BertAA (https://aclanthology.org/2020.icon-main.16.pdf)
-class AuthorsDatasetAA(Dataset):
-    # set pad_to_max_length to false when we want to do dynamic padding
-    def __init__(self, df, source_tag, target_tag, tokenizer, max_source_len, pad_to_max_length=False):
-        self.tokenizer = tokenizer
-        self.max_source_len = max_source_len
-        self.source_tag = source_tag
-        self.source_text = df[source_tag].tolist()
-        self.source_text = [sent.strip() for sent in self.source_text]
-
-        longest_source_sequence = len(max(self.source_text, key=lambda x: len(x.split())).split())
-        print("longest_source_sequence = ", longest_source_sequence)
-
-        self.target_tag = target_tag
-        self.target_classes = df[target_tag].tolist()
-        unique_target_classes = set(self.target_classes)
-        self.no_authors = len(unique_target_classes)
-        self.author_index_to_no_samples = dict(zip(list(unique_target_classes), [0] * len(unique_target_classes)))
-        for author_ind in self.target_classes:
-            self.author_index_to_no_samples[author_ind] += 1
-
-        self.one_hot_target_classes = self.get_one_hot_target_classes()
-        self.pad_to_max_length = pad_to_max_length
-        assert len(self.source_text) == len(self.one_hot_target_classes)
-
-    def get_one_hot_target_classes(self):
-        one_hot_targets = []
-        for target_class in self.target_classes:
-            one_hot_target = [1 if i == target_class else 0 for i in range(self.no_authors)]
-            one_hot_targets.append(one_hot_target)
-        return one_hot_targets
-
-    def __len__(self):
-        """returns the length of the dataframe"""
-        return len(self.target_classes)
-
-    def __getitem__(self, index) -> Dict[str, List]:
-        """return input ids, attention marks and target ids"""
-        source_text = self.source_text[index]
-
-        # tokenizing source
-        source = self.tokenizer(
-            source_text,
-            max_length=self.max_source_len,
-            pad_to_max_length=self.pad_to_max_length,
-            truncation=True,
-            add_special_tokens=True,
-            return_token_type_ids=True
-        )
-
-        labels = self.one_hot_target_classes[index]
-
-        return {
-            "input_ids": source["input_ids"],
-            "attention_mask": source["attention_mask"],
-            "labels": labels,
-        }
-
-
-# this allows us to do dynamic padding for batches.
-# It significantly speeds up training time
-class CollatorAA:
-    def __init__(self, pad_token_id):
-        self.pad_token_id = pad_token_id
-
-    def collate_batch(self, batch: List[Dict[str, List]]) -> Dict[str, torch.Tensor]:
-        def pad_seq(seq: List[int], max_batch_len: int, pad_value: int) -> List[int]:
-            return seq + (max_batch_len - len(seq)) * [pad_value]
-
-        batch_input_ids = []
-        batch_attention_mask = []
-        batch_labels = []
-
-        max_size = max([len(sample["input_ids"]) for sample in batch])
-        for sample_dict in batch:
-            batch_input_ids += [pad_seq(sample_dict["input_ids"], max_size, self.pad_token_id)]
-            batch_attention_mask += [pad_seq(sample_dict["attention_mask"], max_size, self.pad_token_id)]
-            batch_labels.append(sample_dict["labels"])
-
-        return {
-            "input_ids": torch.tensor(batch_input_ids, dtype=torch.long),
-            "attention_mask": torch.tensor(batch_attention_mask, dtype=torch.long),
-            "labels": torch.tensor(batch_labels, dtype=torch.float)
-        }
-
-
-# this allows us to do dynamic padding for batches.
-# It significantly speeds up training time
-class CollatorAV:
-    def __init__(self, pad_token_id):
-        self.pad_token_id = pad_token_id
-
-    def collate_batch(self, batch: List[Dict[str, List]]) -> Dict[str, torch.Tensor]:
-        def pad_seq(seq: List[int], max_batch_len: int, pad_value: int) -> List[int]:
-            return seq + (max_batch_len - len(seq)) * [pad_value]
-
-        batch_input_ids1 = []
-        batch_attention_mask1 = []
-
-        batch_input_ids2 = []
-        batch_attention_mask2 = []
-
-        batch_labels = []
-
-        max_size1 = max([len(sample["input_ids"][0]) for sample in batch])
-        max_size2 = max([len(sample["input_ids"][1]) for sample in batch])
-
-        for sample_dict in batch:
-            batch_input_ids1 += [pad_seq(sample_dict["input_ids"][0], max_size1, self.pad_token_id)]
-            batch_attention_mask1 += [pad_seq(sample_dict["attention_mask"][0], max_size1, self.pad_token_id)]
-
-            batch_input_ids2 += [pad_seq(sample_dict["input_ids"][1], max_size2, self.pad_token_id)]
-            batch_attention_mask2 += [pad_seq(sample_dict["attention_mask"][1], max_size2, self.pad_token_id)]
-
-            batch_labels.append(sample_dict["labels"])
-
-        return {
-            "input_ids": (torch.tensor(batch_input_ids1, dtype=torch.long),
-                          torch.tensor(batch_input_ids2, dtype=torch.long)),
-            "attention_mask": ((torch.tensor(batch_attention_mask1, dtype=torch.long)),
-                               (torch.tensor(batch_attention_mask2, dtype=torch.long))),
-            "labels": torch.tensor(batch_labels, dtype=torch.float)
-        }
-
-
 def balance_fn(texts, labels):
+    """
+    Randomly over/under-sample texts from different authors to make sure that the number of texts for each author is equal to
+    the mean + std number of texts for each author
+    """
     texts = list(texts)
     labels = list(labels)
 
@@ -303,16 +132,20 @@ def balance_fn(texts, labels):
     return new_texts, new_labels
 
 
-# split dataset into positive pairs (coming from same author) and negative pairs (coming from different authors)
-# the approach is similar to that described in page 9 of this paper https://arxiv.org/pdf/1912.10616.pdf
-# We do the following (for each author):
-# - split the texts produced by each author into 4 equal sized chunks
-# - merge the first two chunks to create positive/same-author pairs for the given author
-# - split the third chunk into N - 1 pieces, where N is the total number of authors in the dataset
-# - merge the pieces from the third chunk with random texts from the other (N-1) authors' forth chunks
-# This results in an equal number of positive and negative pairs in these datasets.
 def create_pos_neg_pairs(df, balance=False):
-    # split as described in page ten of this paper https://arxiv.org/pdf/1912.10616.pdf
+    """
+    split dataset into positive pairs (coming from same author) and negative pairs (coming from different authors)
+    the approach is similar to that described in page 9 of this paper https://arxiv.org/pdf/1912.10616.pdf
+    We do the following (for each author):
+    - split the texts produced by each author into 4 equal sized chunks
+    - merge the first two chunks to create positive/same-author pairs for the given author
+    - split the third chunk into N - 1 pieces, where N is the total number of authors in the dataset
+    - merge the pieces from the third chunk with random texts from the other (N-1) authors' forth chunks
+    This results in an equal number of positive and negative pairs in these datasets.
+    :param df:
+    :param balance: whether to balance the dataset using balance_fn before constructing the pairs
+    """
+
     texts = df["content"].tolist()
     labels = df["Target"].tolist()
 
@@ -366,6 +199,7 @@ def map_chunks(texts1, texts2):
         zip(texts1, texts2[:len(texts1)]))
 
 
+# helper to get pairs of texts written by same/different authors
 def get_pairs_and_labels(no_authors, split, balanced=False):
     pairs_df = pd.read_csv(
         f"./data/blog/{no_authors}_authors/{split}_pairs_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
@@ -376,6 +210,7 @@ def get_pairs_and_labels(no_authors, split, balanced=False):
     return pairs, labels
 
 
+# helper
 def get_samples_and_labels(no_authors, split, balanced=False, demo=False):
     df = pd.read_csv(
         f"./data/blog/{no_authors}_authors/{'demo_' if demo else ''}{split}_{no_authors}_authors{'_balanced' if balanced else ''}.csv")
@@ -384,8 +219,19 @@ def get_samples_and_labels(no_authors, split, balanced=False, demo=False):
     return samples, labels
 
 
-# this creates all the datasets needed - more details in READ.me
 def create_all_datasets(no_authors, balance=False):
+    """
+    Creates all the datasets needed:
+   - train, test, val datasets of texts to labels indicating the class/author.
+   - train, test, val datasets of pairs of text with label 1 if pair comes from same author, 0 if they come from different authors
+
+   The split is 70% for train, 10% for validation and 20% for test
+
+    :param no_authors: the number of authors to include in the dataset, select all texts from the no_authors with the highest number of texts
+    :param balance: if true, it over/under-samples texts from different authors to make sure that the number of texts for each author is equal to
+                    the mean + std number of texts for each author. Note that balacing is only applied to the training set and not
+                    to the testing/validation sets
+    """
     seed_for_reproducability()
 
     # normal AA dataset

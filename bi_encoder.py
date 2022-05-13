@@ -16,9 +16,33 @@ from sentence_transformers.evaluation import SentenceEvaluator, BinaryClassifica
 from sklearn.metrics.pairwise import cosine_distances
 from sklearn import metrics
 import tqdm.std
-from utils import seed_for_reproducability
+from seed import seed_for_reproducability
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+
+
+######################### ABBREVIATIOS ######################################################################
+# AV: means authorship verification - given 2 texts do they come from the same or from different authors
+# AA/Classification: means authorship attribution - given a piece of text, predict its author
+#############################################################################################################
+
+# ####################### WHAT DOES THIS MODEL DO ? ########################################################
+# This model is a BERT based bi-encoder/siamese network, using the sentence-transformers library.
+# It predicts the author of a given piece of text It's an illustration of a similarity based approach for AA, in which, we have a database
+# of known authors (i.e. training set) which we use to learn embeddings that capture the stylistic features the model
+# needs/"thinks it needs" to differentiate between authors.
+# At test time, we get the embedding of the given test sample, find its K most similar samples in the database
+# (based on some similarity measure - we use cosine similarity here), and attribute it to the author with the highest
+# number of samples among those K.
+# NOTE: we do not leak training data at test time, the training data is our database, all test samples were never seen by the model.
+# Why not just use the embeddings of a normal Bert (not a siamese one)?
+# It has been shown by e.g., https://arxiv.org/pdf/1908.10084.pdf that raw embeddings from a raw Bert are not meaningful
+# in the sense that they don't make similar setances close, and different ones far from each other. Hence, they can't be used
+# for any similarity measure.
+#
+# This file contains the training and testing of the model.
+# For testing here we only report a scores for a subset of the metrics used.
+# Each test writes the results to a csv file, which will be then used to report performance against more metrics in evaluation.py
 
 
 def tsne_plot(embeddings, labels, name, path="./output", show=False):
@@ -86,7 +110,9 @@ def test_classification(params, training_samples, training_labels, val_samples, 
 
 
 def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
-    """Tests bi-encoder on Author verification"""
+    """Tests bi-encoder on Author verification
+    How well can it differentiate between texts written by same author vs different authors?
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT], device=device)
@@ -126,8 +152,9 @@ def test_AV(params, threshold, val_pairs, val_labels, batch_size, model=None):
 
 
 def tune_k(params, training_samples, training_labels, val_samples, val_labels, batch_size, show=False, model=None):
-    """Tunes k to find best value
-    the top k documents and perform classification"""
+    """Finds the best value for K for KNN classification
+    i.e. the one yielding the highest classification accuracy
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT], device=device)
@@ -137,6 +164,7 @@ def tune_k(params, training_samples, training_labels, val_samples, val_labels, b
                                         10)
     accuracies = evaluator(model, output_path="output/", output_list=True)
 
+    # plot how the accuracy changes as the chosen k increases
     plt.figure(figsize=(10, 10))
     plt.scatter(candidate_ks, accuracies)
     plt.title(f'Blogs-{params[NO_AUTHORS]} accuracy for different values of K')
@@ -152,6 +180,18 @@ def tune_k(params, training_samples, training_labels, val_samples, val_labels, b
 
 
 class ClassificationEvaluator(SentenceEvaluator):
+    """
+    Tests how the model does on authorship attribution/classification.
+    This is used to decide on which checkpoint to save while training the model
+    Classification involves the following steps:
+    1. obtain embeddings for all samples in the database (training samples). In real life that would be a FAISS index
+    2. obtain embeddings for test/validation samples
+    3. for a given test sample, measure similarity to every training sample (using cosine similarity here)
+    4. rerank database based on similarity measure
+    5. select top K most similar
+    6. attribute test sample to the author who authors the highest number of the given test samples
+    """
+
     def __init__(self, training_samples, training_labels, val_samples, val_labels, batch_size, top_ks, top_k):
         self.train_samples = training_samples
         self.train_labels = training_labels
@@ -163,10 +203,11 @@ class ClassificationEvaluator(SentenceEvaluator):
         self.no_authors = len(set(val_labels))
 
     def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1, output_list=False,
-                 save=False, demo=False,saved_embeddings_path="") -> float:
+                 save=False, demo=False, saved_embeddings_path="") -> float:
         print("** Validation **")
-        if (demo):
-            if (saved_embeddings_path==""):
+        if demo:
+            # use saved embeddings for demo
+            if (saved_embeddings_path == ""):
                 print("If this is a demo, saved embeddings need to be supplied")
                 return
             with open(saved_embeddings_path, 'rb') as f:
@@ -174,7 +215,7 @@ class ClassificationEvaluator(SentenceEvaluator):
                 train_embeddings = embeddings["train"]
                 val_embeddings = embeddings["test"]
         else:
-                
+            # use model to obtain embeddings during training
             print("obtaining training samples embeddings")
             train_embeddings = model.encode(self.train_samples,
                                             convert_to_numpy=True,
@@ -182,20 +223,22 @@ class ClassificationEvaluator(SentenceEvaluator):
                                             show_progress_bar=True)
             print("obtaining validation samples embeddings")
             val_embeddings = model.encode(self.val_samples,
-                                        convert_to_numpy=True,
-                                        batch_size=self.batch_size,
-                                        show_progress_bar=True)
-
+                                          convert_to_numpy=True,
+                                          batch_size=self.batch_size,
+                                          show_progress_bar=True)
+        # plot the embeddings, do they cluster?
         tsne_plot(val_embeddings, self.val_labels, f"authors{self.no_authors}_epoch{epoch}")
 
+        # measure similarity, note that cosine distance = 1 - cosine similarity
         cos_dists = cosine_distances(val_embeddings, train_embeddings)
+        # rerank
         sorted_indicies = np.argsort(cos_dists, axis=1)
 
         top_k_accuracies = []
         print("obtaining accuracies for all topks")
         for top_k in self.top_ks:
             predicted_val_labels = []
-            sorted_indicies_topk = sorted_indicies[:,:top_k]
+            sorted_indicies_topk = sorted_indicies[:, :top_k]
             for i in range(len(val_embeddings)):
                 candidate_labels = [self.train_labels[topk_index] for topk_index in sorted_indicies_topk[i]]
                 # now we choose the label with the highest count
@@ -222,20 +265,34 @@ class ClassificationEvaluator(SentenceEvaluator):
 
 def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pair_samples,
                         train_pair_labels, val_pair_samples, val_pair_labels):
+    """
+    Construct and train a Bert-based bi-encoder.
+    The model tries to learn embeddings that are "close" for similar authors, and distant for different authors
+    We experimented with multiple training objectives / loss functions, including:
+    - contrastive loss: tries to reduce distance between similar samples, and increase distance between different samples.
+    - online contrastive loss:  it selects hard positive (positives that are far apart) and hard negative pairs
+        (negatives that are close) and computes the loss only for these pairs. The library reports that this often
+        yields better results than contrastive losss, but that wasn't the case for us
+    - batch hard triplet loss: takes a batch with (label, sentence) pairs and computes the loss for all possible,
+        valid triplets, i.e., anchor and positive must have the same label, anchor and negative a different label.
+        It then looks for the hardest positive and the hardest negatives.
+    """
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ######## defining the model
+    # defining the model
     word_embedding_model = models.Transformer(params[CHECKPOINT], max_seq_length=params[MAX_SOURCE_TEXT_LENGTH])
+    # use mean pooling, was reported to work better than cls pooling in https://arxiv.org/pdf/1908.10084.pdf
     pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension())
     model = SentenceTransformer(modules=[word_embedding_model, pooling_model], device=device)
-    #########################
 
     if params[LOSS] != BATCH_HARD_TRIPLET:  # contrastive losses need pairs
         # positive label is 1, negative label is 0
         train_examples = [InputExample(texts=train_pair_samples[i], label=train_pair_labels[i]) for i in
                           range(len(train_pair_samples))]
 
-    else:  # triplet loss needs just the samples
+    else:
+        # triplet loss needs just the samples, all possible triplets will be constructed from the batches automatically
         train_examples = [InputExample(texts=[train_samples[i]], label=train_labels[i]) for i in
                           range(len(train_samples))]
 
@@ -281,27 +338,36 @@ def train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_la
 
 
 def tune_AV_threshold(params, val_pairs, val_labels, model=None):
+    """
+    :param params: the model parameters, e.g. NO_AUTHORS, CHECKPOINT, etc
+    :param val_pairs: pairs of positive and negative samples from the validation set
+    :param val_labels: positive 1 or negative 0
+    :param model: optional, provide the mode
+    :return:
+    """
+    # use gpu if possible
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     if model is None:
         model = SentenceTransformer(params[CHECKPOINT], device=device)
 
+    # first elements in pairs
     s1s_val = [s1 for s1, _ in val_pairs]
+    # second elements in pairs
     s2s_val = [s2 for _, s2 in val_pairs]
 
     evaluator = BinaryClassificationEvaluator(sentences1=s1s_val, sentences2=s2s_val, labels=val_labels,
                                               batch_size=32, show_progress_bar=True)
-
-    ap = evaluator(model, os.path.join(params[OUTPUT_DIR]))
-
+    # the evaluator will produce a csv file with the optimal accuracy, and its corresponding threshold
+    evaluator(model, os.path.join(params[OUTPUT_DIR]))
 
 
 def e2e_experiment(params, train, test, tune):
-    seed_for_reproducability()
-
+    # obtain training/testing texts and labels
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test")
 
+    # obtain testing pairs
     test_pairs, test_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "test")
 
     try:
@@ -309,81 +375,84 @@ def e2e_experiment(params, train, test, tune):
         train_pairs, train_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
         val_pairs, val_pairs_labels = get_pairs_and_labels(params[NO_AUTHORS], "val")
     except:
-      print("some files were not found, this is not expected unless you're testing for unknown authors")
+        print("some files were not found, this is not expected unless you're testing for unknown authors"
+              "15 authors for the 10 authors checkpoint, or 75 for the 50 authors checkpoint)")
 
     model = None
     if train:
+        # train the model
         model = train_AV_with_sbert(params, train_samples, train_labels, val_samples, val_labels, train_pairs,
                                     train_pairs_labels, val_pairs, val_pairs_labels)
 
     if tune:
-        # the checkpoint will be here after training
-        params[CHECKPOINT] = "./output/checkpoints/bi-encoder-50/"
-        best_k = tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=True,
-                        model=model)
+        # tune the model - using validation set
 
-        # tune_AV_threshold(params, val_pairs, val_labels, model=None)
+        # the checkpoint will be here after training
+        params[CHECKPOINT] = "./output/checkpoints/"
+        # find best K for K-NN
+        tune_k(params, train_samples, train_labels, val_samples, val_labels, batch_size=32, show=True,
+               model=model)
+        # find best threshold for AV
+        tune_AV_threshold(params, val_pairs, val_labels, model=None)
 
     if test:
-        acc50_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
-        # acc75_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
-
-        # acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                    #  batch_size=32, top_k=10, model=None)
-        # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                    #   batch_size=32, top_k=params[BEST_K], model=None)
-        # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
+        # test the model for AV
+        acc_av = test_AV(params, params[THRESHOLD], test_pairs, test_pairs_labels, batch_size=32, model=model)
+        # test authorship classification using 10-NN
+        acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                     batch_size=32, top_k=10, model=None)
+        # test authorship classification using BEST_K-NN
+        acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
+                                                      batch_size=32, top_k=params[BEST_K], model=None)
+        # reuse embedding next time
+        save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
         stats = {
-            # "Classification Accuracy k = 10": acc_classification_k10
-            "AV Accuracy": acc50_av,
-            # "AV Accuracy": acc75_av
-            # f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
+            "AV Accuracy": acc_av,
+            "Classification Accuracy k = 10": acc_classification_k10,
+            f"Classification Accuracy k = {params[BEST_K]}": acc_classification_topk,
         }
         print(stats)
 
-    # look at
-    # saved embeddings
-    # saved classification results
-    # saved AV results
-    # saved embeddings plot
 
+# demo a model trained on 10 authors using a (reduced) test set containing the same 10 authors the model was exposed to
 def demo_tr_10_tst_10():
     seed_for_reproducability()
     params = bi_encoder_params_batch_hard_triplet_10
-    params[NO_AUTHORS]=10
+    # make sure NO_AUTHORS is 10
+    params[NO_AUTHORS] = 10
 
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-
-
-    model = None
-    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
+    saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
     acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                 batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
+                                                 batch_size=32, top_k=10, model=None, demo=True,
+                                                 saved_embeddings_path=saved_embeddings_path)
     # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                #   batch_size=32, top_k=params[BEST_K], model=None)
+    #   batch_size=32, top_k=params[BEST_K], model=None)
     # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
     stats = {
         "Classification Accuracy for 10 authors k = 10": acc_classification_k10
     }
     print(stats)
 
+
+# demo a model trained on 10 authors using a (reduced) test set containing the same 10 authors the model was exposed to
+# IN ADDITION TO 5 authors that the model never saw before
 def demo_tr_10_tst_15():
     seed_for_reproducability()
     params = bi_encoder_params_batch_hard_triplet_10
-    params[NO_AUTHORS]=15
+    params[NO_AUTHORS] = 15
 
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", balanced=params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-
-    model = None
-    saved_embeddings_path= get_demo_embeddings_path(params[NO_AUTHORS])
+    saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
     acc_classification_k10 = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                 batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
+                                                 batch_size=32, top_k=10, model=None, demo=True,
+                                                 saved_embeddings_path=saved_embeddings_path)
     # acc_classification_topk = test_classification(params, train_samples, train_labels, test_samples, test_labels,
-                                                #   batch_size=32, top_k=params[BEST_K], model=None)
+    #   batch_size=32, top_k=params[BEST_K], model=None)
     # save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
     stats = {
         "Classification Accuracy for 15 authors k = 10": acc_classification_k10
