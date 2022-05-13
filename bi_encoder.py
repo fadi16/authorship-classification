@@ -426,7 +426,7 @@ def e2e_experiment(params, train, test, tune):
 
         save_embeddings(model, train_samples, val_samples, test_samples, path=params[OUTPUT_DIR])
         stats = {
-            "Classification Accuracy k = 10": acc_classification_k10
+            "Classification Accuracy k = 10": acc_classification_k10,
             f"Classification Accuracy k = {params[BEST_K]}": acc_classification_best_k,
             "AV Accuracy": acc_av,
         }
@@ -445,7 +445,7 @@ def demo_tr_10_tst_10():
     acc_classification_k10, f1_micro, f1_macro, mcc = test_classification(params, train_samples, train_labels, test_samples, test_labels,
                                                  batch_size=32, top_k=10, model=None, demo=True, saved_embeddings_path=saved_embeddings_path)
     stats = {
-        "Classification Accuracy for 10 authors k = 10": acc_classification_k10
+        "Classification Accuracy for 10 authors k = 10": acc_classification_k10,
         "f1 micro": f1_micro,
         "f1 macro": f1_macro,
         "mcc": mcc
