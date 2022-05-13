@@ -294,7 +294,7 @@ def get_eval_scores(outputs, labels):
     pred_labels = [get_one_hot_class_from_probs(output) for output in outputs]
     # no. correctly classified / total number of samples
     accuracy = metrics.accuracy_score(labels, pred_labels)
-    overall_precision_recall_f1 = precision_recall_fscore_support(labels, pred_labels, average="micro")
+    overall_precision_recall_f1 = precision_recall_fscore_support(labels, pred_labels, average="macro")
     overall_precision = overall_precision_recall_f1[0]
     overall_recall = overall_precision_recall_f1[1]
     overall_f1 = overall_precision_recall_f1[2]
