@@ -63,30 +63,29 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
     """
     if (demo):
         if (saved_embeddings_path == ""):
-            print("If this is a demo, saved embeddings need to be supplied")
+            print("If this is a demo, saved embeddings for the database need to be supplied")
             return
         with open(saved_embeddings_path, 'rb') as f:
             embeddings = pickle.load(f)
             train_embeddings = embeddings["train"]
-            test_embeddings = embeddings["test"]
     else:
         train_embeddings = bi_encoder_model.encode(train_samples,
                                                    convert_to_numpy=True,
                                                    batch_size=batch_size,
                                                    show_progress_bar=True)
-
-        test_embeddings = bi_encoder_model.encode(test_samples,
-                                                  convert_to_numpy=True,
-                                                  batch_size=batch_size,
-                                                  show_progress_bar=True)
+        
         if (save):
             d = {
                 "train": train_embeddings,
-                "test": test_embeddings
             }
-            f = open("./data/test_embeddings.pkl", "wb")
+            f = open("./data/train_embeddings.pkl", "wb")
             pickle.dump(d, f)
             f.close()
+
+    test_embeddings = bi_encoder_model.encode(test_samples,
+                                                convert_to_numpy=True,
+                                                batch_size=batch_size,
+                                                show_progress_bar=True)
 
     cos_dists = []
     for i in range(len(test_embeddings)):
@@ -117,13 +116,20 @@ def test_classify_with_bi_encoder(cross_encoder_model, bi_encoder_model, train_s
         voted_label = max(set(candidate_labels), key=candidate_labels.count) if len(candidate_labels) != 0 else -1
         predicted_labels.append(voted_label)
 
+    # todo accuracy recall etc
     accuracy = metrics.accuracy_score(test_labels, predicted_labels)
+    f1_micro = metrics.f1_score(test_labels, predicted_labels, average='micro')
+    f1_macro = metrics.f1_score(test_labels, predicted_labels, average='macro')
+    mcc = metrics.matthews_corrcoef(test_labels, predicted_labels)
     predictions_df = pd.DataFrame({
         "predicted_labels": predicted_labels,
         "actual_labels": test_labels
     })
     predictions_df.to_csv(f"test_e2e_classification_authors{len(set(test_labels))}_samples{len(test_samples)}.csv")
     print(f"E2E bi-encoder + cross-encoder (k={top_k}) Test Accuracy = {accuracy}")
+    print(f"F1 micro Score = {f1_micro}")
+    print(f"f1 macro Score = {f1_macro}")
+    print(f"MCC Score = {mcc}")
 
 
 def train(params):
@@ -185,6 +191,7 @@ def e2e_AV_test(params):
 
 def e2e_classification_test(params):
     """End to End classification test
+    Just a wrapper around test_classify_with_bi_encoder for convenience
     uses both cross and bi encoder to test for author classification
     check header to see how both work together
     """
@@ -224,7 +231,8 @@ def demo_tr_10_tst_10_with_bi_encoder():
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-    saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
+
+    saved_embeddings_path= get_demo_embeddings_path("cross_encoder", params[NO_AUTHORS])
     test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
                                   train_samples=train_samples,
                                   train_labels=train_labels,
@@ -250,7 +258,7 @@ def demo_tr_10_tst_15_with_bi_encoder():
     train_samples, train_labels = get_samples_and_labels(params[NO_AUTHORS], "train", params[BALANCE])
     test_samples, test_labels = get_samples_and_labels(params[NO_AUTHORS], "test", demo=True)
 
-    saved_embeddings_path = get_demo_embeddings_path(params[NO_AUTHORS])
+    saved_embeddings_path= get_demo_embeddings_path("cross_encoder", params[NO_AUTHORS])
 
     test_classify_with_bi_encoder(cross_encoder_model=cross_encoder, bi_encoder_model=bi_encoder,
                                   train_samples=train_samples,

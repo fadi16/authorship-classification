@@ -20,10 +20,8 @@ from seed import seed_for_reproducability
 # We follow all Authorship Identification previous works in not applying any preprocessing/cleaning for the data
 # as that would eliminate stylistic features needed for solving the problem
 
-
-
-def get_demo_embeddings_path(no_authors):
-    file_path = f"data/blog/{no_authors}_authors/demo_test_{no_authors}_authors_embeddings.pkl"
+def get_demo_embeddings_path(model, no_authors):
+    file_path =f"data/blog/{no_authors}_authors/demo_{model}_{no_authors}_authors_embeddings.pkl" 
     if os.path.exists(file_path):
         return file_path
     else:

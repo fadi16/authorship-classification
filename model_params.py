@@ -124,7 +124,7 @@ bi_encoder_params_online_contrastive= {
 }
 
 bi_encoder_params_batch_hard_triplet_10= {
-    CHECKPOINT: "bert-base-cased",
+    CHECKPOINT: "./output/checkpoints/bi-encoder-10",
     TRAIN_BATCH_SIZE: 16,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
@@ -141,7 +141,7 @@ bi_encoder_params_batch_hard_triplet_10= {
 }
 
 bi_encoder_params_batch_hard_triplet_50 = {
-    CHECKPOINT: "bert-base-cased",
+    CHECKPOINT: "./output/checkpoints/bi-encoder-50",
     TRAIN_BATCH_SIZE: 16,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
@@ -158,7 +158,7 @@ bi_encoder_params_batch_hard_triplet_50 = {
 }
 
 cross_encoder_params_10= {
-    CHECKPOINT: "bert-base-cased",
+    CHECKPOINT: "output/checkpoints/cross-encoder-10",
     TRAIN_BATCH_SIZE: 8,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
@@ -173,7 +173,7 @@ cross_encoder_params_10= {
 }
 
 cross_encoder_params_50= {
-    CHECKPOINT: "bert-base-cased",
+    CHECKPOINT: "output/checkpoints/cross-encoder-50",
     TRAIN_BATCH_SIZE: 8,
     VALID_BATCH_SIZE: 16,
     TRAIN_EPOCHS: 7,
